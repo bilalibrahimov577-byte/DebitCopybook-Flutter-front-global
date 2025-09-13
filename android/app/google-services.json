@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1073865818355",
+    "project_id": "debitcopybook-backend",
+    "storage_bucket": "debitcopybook-backend.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1073865818355:android:382a7f3f694fdc0b21f786",
+        "android_client_info": {
+          "package_name": "com.example.borc_defteri"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1073865818355-vipgmch03bl87d09s0n5fa9focv704mh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.borc_defteri",
+            "certificate_hash": "3fd59378958d9fcdd8ec823e156b69ff6702f774"
+          }
+        },
+        {
+          "client_id": "1073865818355-k2pdr0895lilfvdli2beogmko7cgj89r.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANxowTn5MwmbXtNzvu3DvTMEBIA9JbxNs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1073865818355-k2pdr0895lilfvdli2beogmko7cgj89r.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
