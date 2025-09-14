@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- İNTERNET İCAZƏSİ BUDUR -->
+    <!-- İnternetə çıxış üçün icazə (reklamların yüklənməsi üçün vacibdir) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -16,10 +16,6 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <!-- Specifies an Android theme to apply to this Activity as soon as
-                 the Android process has started. This theme is visible to the user
-                 while the Flutter UI initializes. After that, this theme continues
-                 to determine the Window background behind the Flutter UI. -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"
@@ -29,21 +25,33 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Don't delete the meta-data below.
-             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+
+        <!-- Google AdMob üçün Tətbiq ID-si -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1488367137709334~6405570057"/>
+
+        <!-- Flutter tərəfindən istifadə olunur -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
-    <!-- Required to query activities that can process text, see:
-         https://developer.android.com/training/package-visibility and
-         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
 
-         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <!-- Tətbiqin digər proqramları axtarması üçün icazələr bloku -->
     <queries>
+        <!-- Bu, Flutter-in mətn emalı üçün istifadə etdiyi standart blokdur -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+
+        <!-- === BAŞLA: BİZİM ƏLAVƏ ETDİYİMİZ HİSSƏ === -->
+        <!-- Bu, email proqramlarını (mailto) aça bilmək üçün lazımdır -->
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+        <!-- === SON: BİZİM ƏLAVƏ ETDİYİMİZ HİSSƏ === -->
     </queries>
+
 </manifest>

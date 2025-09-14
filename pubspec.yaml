@@ -14,7 +14,8 @@ dependencies:
   google_sign_in: ^6.1.0
   http: ^1.2.1
   flutter_secure_storage: ^9.0.0
-
+  google_mobile_ads: ^5.0.0 # <--- BU SƏTRİ ƏLAVƏ ETDİM
+  url_launcher: ^6.2.6
 dev_dependencies:
   flutter_test:
     sdk: flutter
