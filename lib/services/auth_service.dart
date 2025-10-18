@@ -11,15 +11,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class AuthService {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
 
-// Android Client ID-ni burada təyin etmək lazım deyil,
 
-// lakin web tətbiqi üçün istifadə olunan serverClientId Flutter-in
+    scopes: [
+      'email',
+      'profile',
+    ],
+    // Bu isə "Invalid ID Token" xətasının qarşısını alan ƏN VACİB hissədir.
+    serverClientId: '1073865818355-am5kd3qm1otm22f6htt3n8h0ogq753fv.apps.googleusercontent.com',
 
-// Android tətbiqindən də gələ bilər.
-
-// Əgər spesifik bir Android Client ID təyin etmək lazım olarsa:
-
-// serverClientId: "YOUR_FLUTTER_ANDROID_CLIENT_ID.apps.googleusercontent.com",
 
       );
 

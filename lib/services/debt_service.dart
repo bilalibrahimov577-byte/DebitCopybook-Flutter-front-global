@@ -1,368 +1,222 @@
 import 'package:http/http.dart' as http;
-
-import '../models/debt.dart';
-
-import '../models/debt_request.dart';
-
-import 'auth_service.dart'; // Əlavə olaraq AuthService-i import edirik
 import 'dart:convert';
+import '../models/debt.dart';
+import '../models/debt_request.dart';
+import '../models/debt_history.dart'; // YENİ: Tarixçə modeli üçün import
+import 'auth_service.dart';
+
 class DebtService {
-// Backend-in deploy olunmuş URL-i.
-
-  final String baseUrl =
-      "https://debitcopybook-backend-global-c9pw.onrender.com/api/v1/debts";
-
-// AuthService-in bir instance-ını yaradırıq.
-
+  final String baseUrl = "https://debitcopybook-backend-global-c9pw.onrender.com/api/v1/debts";
   final AuthService _authService = AuthService();
 
-// JWT tokeni ilə bütün borcları gətirir.
-
-  Future<List<Debt>> getAllDebts() async {
+  // Helper funksiya: Başlıqları hazırlamaq üçün
+  Future<Map<String, String>?> _getHeaders({bool includeContentType = false}) async {
     final String? jwtToken = await _authService.getJwtToken();
+    if (jwtToken == null) return null;
 
-    if (jwtToken == null) return []; // Token yoxdursa, boş siyahı qaytar
+    final headers = {'Authorization': 'Bearer $jwtToken'};
+    if (includeContentType) {
+      headers['Content-Type'] = 'application/json; charset=UTF-8';
+    }
+    return headers;
+  }
 
-    var url = Uri.parse('$baseUrl/findAllDebts');
+  // YENİLƏNDİ: URL daha sadə oldu
+  Future<List<Debt>> getAllDebts() async {
+    final headers = await _getHeaders();
+    if (headers == null) return [];
 
+    final url = Uri.parse(baseUrl); // URL: .../api/v1/debts
     try {
-      var response = await http.get(
-        url,
-
-        headers: {
-          'Authorization': 'Bearer $jwtToken'
-        }, // JWT tokeni başlığa əlavə edirik
-      );
-
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) return debtListFromJson(response.body);
-
       return [];
     } catch (e) {
       return [];
     }
   }
 
-// ID-yə görə borcu gətirir.
-
+  // YENİLƏNDİ: URL daha sadə oldu
   Future<Debt?> getDebtById(int id) async {
-    final String? jwtToken = await _authService.getJwtToken();
+    final headers = await _getHeaders();
+    if (headers == null) return null;
 
-    if (jwtToken == null) return null;
-
-    var url = Uri.parse('$baseUrl/findDebtById/$id');
-
+    final url = Uri.parse('$baseUrl/$id'); // URL: .../api/v1/debts/5
     try {
-      var response = await http.get(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
-
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) {
         return Debt.fromJson(json.decode(response.body));
       }
-
       return null;
     } catch (e) {
       return null;
     }
   }
 
-// Yeni borc yaradır.
-
-// Future<Map<String, dynamic>> createDebt(DebtRequest newDebt) async {
-
-// final String? jwtToken = await _authService.getJwtToken();
-
-// if (jwtToken == null) {
-
-// return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
-
-// }
-
-//
-
-// var url = Uri.parse(baseUrl);
-
-// try {
-
-// var response = await http.post(
-
-// url,
-
-// headers: {
-
-// 'Authorization': 'Bearer $jwtToken',
-
-// 'Content-Type': 'application/json; charset=UTF-8',
-
-// },
-
-// body: jsonEncode(newDebt.toJson()),
-
-// );
-
-//
-
-// if (response.statusCode == 201) {
-
-// return {'success': true, 'message': 'Borc uğurla yaradıldı!'};
-
-// } else if (response.statusCode == 400) {
-
-// final errorBody = json.decode(utf8.decode(response.bodyBytes));
-
-// return {'success': false, 'message': errorBody['message'] ?? 'Yanlış sorğu göndərildi.'};
-
-// } else {
-
-// return {'success': false, 'message': 'Server xətası: ${response.statusCode}'};
-
-// }
-
-// } catch (e) {
-
-// return {'success': false, 'message': 'Sistem xətası baş verdi. İnternet bağlantınızı yoxlayın.'};
-
-// }
-
-// }
-
+  // DƏYİŞMƏDİ: Bu metodun məntiqi düzgün idi
   Future<Map<String, dynamic>> createDebt(DebtRequest newDebt) async {
-    final String? jwtToken = await _authService.getJwtToken();
-
-    if (jwtToken == null) {
+    final headers = await _getHeaders(includeContentType: true);
+    if (headers == null) {
       return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
     }
 
-    var url = Uri.parse(baseUrl);
-
+    final url = Uri.parse(baseUrl); // URL: POST .../api/v1/debts
     try {
-      var response = await http.post(
+      final response = await http.post(
         url,
-        headers: {
-          'Authorization': 'Bearer $jwtToken',
-          'Content-Type': 'application/json; charset=UTF-8',
-        },
+        headers: headers,
         body: jsonEncode(newDebt.toJson()),
       );
-
       if (response.statusCode == 201) {
         return {'success': true, 'message': 'Borc uğurla yaradıldı!'};
-      } else if (response.statusCode == 400) {
-        final errorBody = json.decode(utf8.decode(response.bodyBytes));
-
-// 400 Bad Request üçün spesifik mesajı göstər
-
-        return {
-          'success': false,
-          'message': errorBody['message'] ?? 'Yanlış sorğu göndərildi.'
-        };
-      } else if (response.statusCode == 500) {
-        final errorBody = json.decode(utf8.decode(response.bodyBytes));
-
-// 500 Internal Server Error üçün xüsusi mesajı idarə et
-
-// Bu, sizin serverinizdəki IllegalStateException-dən gələn mesaj olmalıdır
-
-        return {
-          'success': false,
-          'message': errorBody['message'] ??
-              'Gözlənilməz server xətası baş verdi. Zəhmət olmasa, daha sonra yenidən cəhd edin.'
-        };
       } else {
-// Digər status kodları üçün ümumi xəta mesajı
-
-        return {
-          'success': false,
-          'message': 'Server xətası: ${response.statusCode}'
-        };
+        // Xəta mesajlarını idarə etmək üçün mərkəzləşdirilmiş yanaşma
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
       }
     } catch (e) {
-// İnternet bağlantısı və ya digər sistem xətaları
-
-      return {
-        'success': false,
-        'message': 'Sistem xətası baş verdi. İnternet bağlantınızı yoxlayın.'
-      };
+      return {'success': false, 'message': 'Sistem xətası baş verdi. İnternet bağlantınızı yoxlayın.'};
     }
   }
 
-// Borcu yeniləyir.
-
-  Future<Map<String, dynamic>> updateDebt(
-      int id, DebtRequest debtToUpdate) async {
-    final String? jwtToken = await _authService.getJwtToken();
-
-    if (jwtToken == null) {
+  // YENİLƏNDİ: URL və metod növü (PUT) dəyişdi
+  Future<Map<String, dynamic>> updateDebt(int id, DebtRequest debtToUpdate) async {
+    final headers = await _getHeaders(includeContentType: true);
+    if (headers == null) {
       return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
     }
 
-    var url = Uri.parse('$baseUrl/updateDebt/$id');
-
+    final url = Uri.parse('$baseUrl/$id'); // URL: PUT .../api/v1/debts/5
     try {
-      var response = await http.patch(
+      final response = await http.put( // http.patch -> http.put
         url,
-        headers: {
-          'Authorization': 'Bearer $jwtToken',
-          'Content-Type': 'application/json; charset=UTF-8',
-        },
+        headers: headers,
         body: jsonEncode(debtToUpdate.toJson()),
       );
-
       if (response.statusCode == 200) {
         return {'success': true, 'message': 'Borc uğurla yeniləndi!'};
-      } else if (response.statusCode == 400) {
-        final errorBody = json.decode(utf8.decode(response.bodyBytes));
-
-        return {
-          'success': false,
-          'message': errorBody['message'] ?? 'Yanlış sorğu göndərildi.'
-        };
       } else {
-        return {
-          'success': false,
-          'message': 'Server xətası: ${response.statusCode}'
-        };
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
       }
     } catch (e) {
       return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-// Ödəniş edir.
+  // YENİLƏNDİ: URL, metod növü (POST) və body-də məbləğ göndərilməsi
+  Future<Map<String, dynamic>> makePayment(int id, double amount) async {
+    final headers = await _getHeaders(includeContentType: true);
+    if (headers == null) return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
 
-  Future<Debt?> makePayment(int id, double amount) async {
-    final String? jwtToken = await _authService.getJwtToken();
-
-    if (jwtToken == null) return null;
-
-    var url = Uri.parse('$baseUrl/payDebt/$id?amount=$amount');
-
+    final url = Uri.parse('$baseUrl/$id/payments'); // URL: POST .../api/v1/debts/5/payments
     try {
-      var response = await http.patch(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
+      final body = jsonEncode({'amount': amount}); // Məbləği JSON body olaraq göndəririk
+      final response = await http.post(url, headers: headers, body: body); // http.patch -> http.post
 
-      if (response.statusCode == 200)
-        return Debt.fromJson(json.decode(response.body));
-
-      return null;
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': 'Ödəniş uğurla qəbul edildi!'};
+      } else {
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
+      }
     } catch (e) {
-      return null;
+      return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-// Borcu artırır.
+  // YENİLƏNDİ: URL, metod növü (POST) və body-də məbləğ göndərilməsi
+  Future<Map<String, dynamic>> increaseDebt(int id, double amount) async {
+    final headers = await _getHeaders(includeContentType: true);
+    if (headers == null) return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
 
-  Future<Debt?> increaseDebt(int id, double amount) async {
-    final String? jwtToken = await _authService.getJwtToken();
-
-    if (jwtToken == null) return null;
-
-    var url = Uri.parse('$baseUrl/increaseDebt/$id?amount=$amount');
-
+    final url = Uri.parse('$baseUrl/$id/increase'); // URL: POST .../api/v1/debts/5/increase
     try {
-      var response = await http.patch(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
+      final body = jsonEncode({'amount': amount});
+      final response = await http.post(url, headers: headers, body: body); // http.patch -> http.post
 
-      if (response.statusCode == 200)
-        return Debt.fromJson(json.decode(response.body));
-
-      return null;
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': 'Borc uğurla artırıldı!'};
+      } else {
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
+      }
     } catch (e) {
-      return null;
+      return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-// Borcu silir.
-
+  // YENİLƏNDİ: URL daha sadə oldu
   Future<bool> deleteDebt(int id) async {
-    final String? jwtToken = await _authService.getJwtToken();
+    final headers = await _getHeaders();
+    if (headers == null) return false;
 
-    if (jwtToken == null) return false;
-
-    var url = Uri.parse('$baseUrl/deleteDebt/$id');
-
+    final url = Uri.parse('$baseUrl/$id'); // URL: .../api/v1/debts/5
     try {
-      var response = await http.delete(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
-
+      final response = await http.delete(url, headers: headers);
       return response.statusCode == 204;
     } catch (e) {
       return false;
     }
   }
 
-// Ada görə borcları axtarır.
+  // === YENİ FUNKSİYA: Borcun tarixçəsini gətirmək üçün ===
+  Future<List<DebtHistory>> getDebtHistory(int debtId) async {
+    final headers = await _getHeaders();
+    if (headers == null) return [];
 
+    final url = Uri.parse('$baseUrl/$debtId/history'); // URL: GET .../api/v1/debts/5/history
+    try {
+      final response = await http.get(url, headers: headers);
+      if (response.statusCode == 200) {
+        return debtHistoryListFromJson(response.body); // debtHistoryListFromJson funksiyasını yaratmalıyıq
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // YENİLƏNDİ: URL daha standart oldu
   Future<List<Debt>> searchDebtsByName(String name) async {
-    final String? jwtToken = await _authService.getJwtToken();
-
-    if (jwtToken == null) return [];
-
+    final headers = await _getHeaders();
+    if (headers == null) return [];
     if (name.isEmpty) return getAllDebts();
 
-    var url = Uri.parse('$baseUrl/searchByDebtorName?debtorName=$name');
-
+    final url = Uri.parse('$baseUrl/search?name=$name'); // URL: .../api/v1/debts/search?name=...
     try {
-      var response = await http.get(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
-
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) return debtListFromJson(response.body);
-
       return [];
     } catch (e) {
       return [];
     }
   }
 
-// İlə və aya görə borcları axtarır.
-
+  // YENİLƏNDİ: URL daha standart oldu
   Future<List<Debt>> getDebtsByYearAndMonth(int year, int month) async {
-    final String? jwtToken = await _authService.getJwtToken();
+    final headers = await _getHeaders();
+    if (headers == null) return [];
 
-    if (jwtToken == null) return [];
-
-    var url = Uri.parse('$baseUrl/findByYearAndMonth?year=$year&month=$month');
-
+    final url = Uri.parse('$baseUrl/filter/by-date?year=$year&month=$month'); // URL: .../api/v1/debts/filter/by-date?...
     try {
-      var response = await http.get(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
-
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) return debtListFromJson(response.body);
-
       return [];
     } catch (e) {
       return [];
     }
   }
 
-// Müddəti uzadıla bilən borcları axtarır.
-
+  // YENİLƏNDİ: URL daha standart oldu
   Future<List<Debt>> getFlexibleDebts() async {
-    final String? jwtToken = await _authService.getJwtToken();
+    final headers = await _getHeaders();
+    if (headers == null) return [];
 
-    if (jwtToken == null) return [];
-
-    var url = Uri.parse('$baseUrl/findFlexibleDebts');
-
+    final url = Uri.parse('$baseUrl/filter/flexible'); // URL: .../api/v1/debts/filter/flexible
     try {
-      var response = await http.get(
-        url,
-        headers: {'Authorization': 'Bearer $jwtToken'},
-      );
-
+      final response = await http.get(url, headers: headers);
       if (response.statusCode == 200) return debtListFromJson(response.body);
-
       return [];
     } catch (e) {
       return [];

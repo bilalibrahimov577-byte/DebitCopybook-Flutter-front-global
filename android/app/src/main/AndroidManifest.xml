@@ -1,21 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- İnternetə çıxış üçün icazə (reklamların yüklənməsi üçün vacibdir) -->
+    <!-- İnternetə çıxış icazəsi -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="Borc Dəftəri"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/launcher_icon">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
+
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"
@@ -26,7 +27,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Google AdMob üçün Tətbiq ID-si -->
+        <!-- Google Play Servislərinin keş problemini həll etmək üçün -->
+        <meta-data
+            android:name="com.google.android.gms.phenotype.registration.proto.v1"
+            android:value="" />
+
+        <!-- Google AdMob Tətbiq ID-si -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-1488367137709334~6405570057"/>
@@ -37,21 +43,15 @@
             android:value="2" />
     </application>
 
-    <!-- Tətbiqin digər proqramları axtarması üçün icazələr bloku -->
     <queries>
-        <!-- Bu, Flutter-in mətn emalı üçün istifadə etdiyi standart blokdur -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-
-        <!-- === BAŞLA: BİZİM ƏLAVƏ ETDİYİMİZ HİSSƏ === -->
-        <!-- Bu, email proqramlarını (mailto) aça bilmək üçün lazımdır -->
         <intent>
             <action android:name="android.intent.action.SENDTO" />
             <data android:scheme="mailto" />
         </intent>
-        <!-- === SON: BİZİM ƏLAVƏ ETDİYİMİZ HİSSƏ === -->
     </queries>
 
 </manifest>

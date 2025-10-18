@@ -7,22 +7,38 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1073865818355:android:382a7f3f694fdc0b21f786",
+        "mobilesdk_app_id": "1:1073865818355:android:41fe68532c93da2621f786",
         "android_client_info": {
-          "package_name": "com.example.borc_defteri"
+          "package_name": "com.bilalibrahimov.borcdefteri"
         }
       },
       "oauth_client": [
         {
-          "client_id": "1073865818355-vipgmch03bl87d09s0n5fa9focv704mh.apps.googleusercontent.com",
+          "client_id": "1073865818355-7g2vpf1e4albmv10kad4mi2740utpeog.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.example.borc_defteri",
+            "package_name": "com.bilalibrahimov.borcdefteri",
+            "certificate_hash": "2298e21cc6dab38c65b0cf5ba17320d4cb88a97a"
+          }
+        },
+        {
+          "client_id": "1073865818355-927f1ijfn7eahrn35to8s3ov6qrmi3mm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bilalibrahimov.borcdefteri",
             "certificate_hash": "3fd59378958d9fcdd8ec823e156b69ff6702f774"
           }
         },
         {
-          "client_id": "1073865818355-k2pdr0895lilfvdli2beogmko7cgj89r.apps.googleusercontent.com",
+          "client_id": "1073865818355-lofp7jejn68ggr2tsa5nghsl99bdia1u.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bilalibrahimov.borcdefteri",
+            "certificate_hash": "c28170a52afbc1b6b82c919ea0b738dea66258cc"
+          }
+        },
+        {
+          "client_id": "1073865818355-am5kd3qm1otm22f6htt3n8h0ogq753fv.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
@@ -35,7 +51,7 @@
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "1073865818355-k2pdr0895lilfvdli2beogmko7cgj89r.apps.googleusercontent.com",
+              "client_id": "1073865818355-am5kd3qm1otm22f6htt3n8h0ogq753fv.apps.googleusercontent.com",
               "client_type": 3
             }
           ]
