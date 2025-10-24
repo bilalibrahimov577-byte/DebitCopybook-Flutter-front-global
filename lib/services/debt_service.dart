@@ -1,98 +1,65 @@
-import 'package:http/http.dart' as http;
+// lib/services/debt_service.dart
+
+import 'package:flutter/material.dart'; // YENİ: BuildContext üçün lazımdır
 import 'dart:convert';
 import '../models/debt.dart';
 import '../models/debt_request.dart';
-import '../models/debt_history.dart'; // YENİ: Tarixçə modeli üçün import
-import 'auth_service.dart';
+import '../models/debt_history.dart';
+import 'api_service.dart'; // YENİ: Artıq birbaşa ApiService-dən istifadə edirik
 
 class DebtService {
-  final String baseUrl = "https://debitcopybook-backend-global-c9pw.onrender.com/api/v1/debts";
-  final AuthService _authService = AuthService();
+  // Bütün endpoint-lər üçün əsas hissə. ApiService-dəki baseUrl-ə əlavə olunacaq.
+  final String _endpoint = "/api/v1/debts";
 
-  // Helper funksiya: Başlıqları hazırlamaq üçün
-  Future<Map<String, String>?> _getHeaders({bool includeContentType = false}) async {
-    final String? jwtToken = await _authService.getJwtToken();
-    if (jwtToken == null) return null;
-
-    final headers = {'Authorization': 'Bearer $jwtToken'};
-    if (includeContentType) {
-      headers['Content-Type'] = 'application/json; charset=UTF-8';
-    }
-    return headers;
-  }
-
-  // YENİLƏNDİ: URL daha sadə oldu
-  Future<List<Debt>> getAllDebts() async {
-    final headers = await _getHeaders();
-    if (headers == null) return [];
-
-    final url = Uri.parse(baseUrl); // URL: .../api/v1/debts
+  // Bütün borcları gətirir
+  Future<List<Debt>> getAllDebts(BuildContext context) async {
     try {
-      final response = await http.get(url, headers: headers);
-      if (response.statusCode == 200) return debtListFromJson(response.body);
+      final response = await ApiService.get(context, _endpoint);
+      if (response.statusCode == 200) {
+        return debtListFromJson(response.body);
+      }
       return [];
     } catch (e) {
+      // ApiService 401 xətasını özü idarə edir. Bu hissə digər xətalar üçündür.
+      print("getAllDebts xətası: $e");
       return [];
     }
   }
 
-  // YENİLƏNDİ: URL daha sadə oldu
-  Future<Debt?> getDebtById(int id) async {
-    final headers = await _getHeaders();
-    if (headers == null) return null;
-
-    final url = Uri.parse('$baseUrl/$id'); // URL: .../api/v1/debts/5
+  // ID-yə görə bir borcu gətirir
+  Future<Debt?> getDebtById(BuildContext context, int id) async {
     try {
-      final response = await http.get(url, headers: headers);
+      final response = await ApiService.get(context, '$_endpoint/$id');
       if (response.statusCode == 200) {
         return Debt.fromJson(json.decode(response.body));
       }
       return null;
     } catch (e) {
+      print("getDebtById xətası: $e");
       return null;
     }
   }
 
-  // DƏYİŞMƏDİ: Bu metodun məntiqi düzgün idi
-  Future<Map<String, dynamic>> createDebt(DebtRequest newDebt) async {
-    final headers = await _getHeaders(includeContentType: true);
-    if (headers == null) {
-      return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
-    }
-
-    final url = Uri.parse(baseUrl); // URL: POST .../api/v1/debts
+  // Yeni borc yaradır
+  Future<Map<String, dynamic>> createDebt(BuildContext context, DebtRequest newDebt) async {
     try {
-      final response = await http.post(
-        url,
-        headers: headers,
-        body: jsonEncode(newDebt.toJson()),
-      );
+      final response = await ApiService.post(context, _endpoint, body: newDebt.toJson());
       if (response.statusCode == 201) {
         return {'success': true, 'message': 'Borc uğurla yaradıldı!'};
       } else {
-        // Xəta mesajlarını idarə etmək üçün mərkəzləşdirilmiş yanaşma
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
         return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
       }
     } catch (e) {
-      return {'success': false, 'message': 'Sistem xətası baş verdi. İnternet bağlantınızı yoxlayın.'};
+      print("createDebt xətası: $e");
+      return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-  // YENİLƏNDİ: URL və metod növü (PUT) dəyişdi
-  Future<Map<String, dynamic>> updateDebt(int id, DebtRequest debtToUpdate) async {
-    final headers = await _getHeaders(includeContentType: true);
-    if (headers == null) {
-      return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
-    }
-
-    final url = Uri.parse('$baseUrl/$id'); // URL: PUT .../api/v1/debts/5
+  // Mövcud borcu yeniləyir
+  Future<Map<String, dynamic>> updateDebt(BuildContext context, int id, DebtRequest debtToUpdate) async {
     try {
-      final response = await http.put( // http.patch -> http.put
-        url,
-        headers: headers,
-        body: jsonEncode(debtToUpdate.toJson()),
-      );
+      final response = await ApiService.put(context, '$_endpoint/$id', body: debtToUpdate.toJson());
       if (response.statusCode == 200) {
         return {'success': true, 'message': 'Borc uğurla yeniləndi!'};
       } else {
@@ -100,20 +67,15 @@ class DebtService {
         return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
       }
     } catch (e) {
+      print("updateDebt xətası: $e");
       return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-  // YENİLƏNDİ: URL, metod növü (POST) və body-də məbləğ göndərilməsi
-  Future<Map<String, dynamic>> makePayment(int id, double amount) async {
-    final headers = await _getHeaders(includeContentType: true);
-    if (headers == null) return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
-
-    final url = Uri.parse('$baseUrl/$id/payments'); // URL: POST .../api/v1/debts/5/payments
+  // Ödəniş edir
+  Future<Map<String, dynamic>> makePayment(BuildContext context, int id, double amount) async {
     try {
-      final body = jsonEncode({'amount': amount}); // Məbləği JSON body olaraq göndəririk
-      final response = await http.post(url, headers: headers, body: body); // http.patch -> http.post
-
+      final response = await ApiService.post(context, '$_endpoint/$id/payments', body: {'amount': amount});
       if (response.statusCode == 200) {
         return {'success': true, 'message': 'Ödəniş uğurla qəbul edildi!'};
       } else {
@@ -121,20 +83,15 @@ class DebtService {
         return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
       }
     } catch (e) {
+      print("makePayment xətası: $e");
       return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-  // YENİLƏNDİ: URL, metod növü (POST) və body-də məbləğ göndərilməsi
-  Future<Map<String, dynamic>> increaseDebt(int id, double amount) async {
-    final headers = await _getHeaders(includeContentType: true);
-    if (headers == null) return {'success': false, 'message': 'Autentifikasiya tokeni yoxdur.'};
-
-    final url = Uri.parse('$baseUrl/$id/increase'); // URL: POST .../api/v1/debts/5/increase
+  // Borcu artırır
+  Future<Map<String, dynamic>> increaseDebt(BuildContext context, int id, double amount) async {
     try {
-      final body = jsonEncode({'amount': amount});
-      final response = await http.post(url, headers: headers, body: body); // http.patch -> http.post
-
+      final response = await ApiService.post(context, '$_endpoint/$id/increase', body: {'amount': amount});
       if (response.statusCode == 200) {
         return {'success': true, 'message': 'Borc uğurla artırıldı!'};
       } else {
@@ -142,84 +99,119 @@ class DebtService {
         return {'success': false, 'message': errorBody['message'] ?? 'Bilinməyən xəta baş verdi.'};
       }
     } catch (e) {
+      print("increaseDebt xətası: $e");
       return {'success': false, 'message': 'Sistem xətası baş verdi.'};
     }
   }
 
-  // YENİLƏNDİ: URL daha sadə oldu
-  Future<bool> deleteDebt(int id) async {
-    final headers = await _getHeaders();
-    if (headers == null) return false;
-
-    final url = Uri.parse('$baseUrl/$id'); // URL: .../api/v1/debts/5
+  // Borcu silir
+  Future<bool> deleteDebt(BuildContext context, int id) async {
     try {
-      final response = await http.delete(url, headers: headers);
+      final response = await ApiService.delete(context, '$_endpoint/$id');
       return response.statusCode == 204;
     } catch (e) {
+      print("deleteDebt xətası: $e");
       return false;
     }
   }
 
-  // === YENİ FUNKSİYA: Borcun tarixçəsini gətirmək üçün ===
-  Future<List<DebtHistory>> getDebtHistory(int debtId) async {
-    final headers = await _getHeaders();
-    if (headers == null) return [];
-
-    final url = Uri.parse('$baseUrl/$debtId/history'); // URL: GET .../api/v1/debts/5/history
+  // Borcun tarixçəsini gətirir
+  Future<List<DebtHistory>> getDebtHistory(BuildContext context, int debtId) async {
     try {
-      final response = await http.get(url, headers: headers);
+      final response = await ApiService.get(context, '$_endpoint/$debtId/history');
       if (response.statusCode == 200) {
-        return debtHistoryListFromJson(response.body); // debtHistoryListFromJson funksiyasını yaratmalıyıq
+        return debtHistoryListFromJson(response.body);
       }
       return [];
     } catch (e) {
+      print("getDebtHistory xətası: $e");
       return [];
     }
   }
 
-  // YENİLƏNDİ: URL daha standart oldu
-  Future<List<Debt>> searchDebtsByName(String name) async {
-    final headers = await _getHeaders();
-    if (headers == null) return [];
-    if (name.isEmpty) return getAllDebts();
-
-    final url = Uri.parse('$baseUrl/search?name=$name'); // URL: .../api/v1/debts/search?name=...
+  // Ada görə axtarış edir
+  Future<List<Debt>> searchDebtsByName(BuildContext context, String name) async {
+    if (name.isEmpty) return getAllDebts(context); // Axtarış boşdursa, bütün borcları gətir
     try {
-      final response = await http.get(url, headers: headers);
-      if (response.statusCode == 200) return debtListFromJson(response.body);
+      final response = await ApiService.get(context, '$_endpoint/search?name=$name');
+      if (response.statusCode == 200) {
+        return debtListFromJson(response.body);
+      }
       return [];
     } catch (e) {
+      print("searchDebtsByName xətası: $e");
       return [];
     }
   }
 
-  // YENİLƏNDİ: URL daha standart oldu
-  Future<List<Debt>> getDebtsByYearAndMonth(int year, int month) async {
-    final headers = await _getHeaders();
-    if (headers == null) return [];
-
-    final url = Uri.parse('$baseUrl/filter/by-date?year=$year&month=$month'); // URL: .../api/v1/debts/filter/by-date?...
+  // İl və aya görə filtrləyir
+  Future<List<Debt>> getDebtsByYearAndMonth(BuildContext context, int year, int month) async {
     try {
-      final response = await http.get(url, headers: headers);
-      if (response.statusCode == 200) return debtListFromJson(response.body);
+      final response = await ApiService.get(context, '$_endpoint/filter/by-date?year=$year&month=$month');
+      if (response.statusCode == 200) {
+        return debtListFromJson(response.body);
+      }
       return [];
     } catch (e) {
+      print("getDebtsByYearAndMonth xətası: $e");
       return [];
     }
   }
 
-  // YENİLƏNDİ: URL daha standart oldu
-  Future<List<Debt>> getFlexibleDebts() async {
-    final headers = await _getHeaders();
-    if (headers == null) return [];
-
-    final url = Uri.parse('$baseUrl/filter/flexible'); // URL: .../api/v1/debts/filter/flexible
+  // "Çevik" borcları gətirir
+  Future<List<Debt>> getFlexibleDebts(BuildContext context) async {
     try {
-      final response = await http.get(url, headers: headers);
-      if (response.statusCode == 200) return debtListFromJson(response.body);
+      final response = await ApiService.get(context, '$_endpoint/filter/flexible');
+      if (response.statusCode == 200) {
+        return debtListFromJson(response.body);
+      }
       return [];
     } catch (e) {
+      print("getFlexibleDebts xətası: $e");
       return [];
     }
   }
+
+//24 oktyabr 2025-ci il
+  Future<List<Debt>> getMyDebts(BuildContext context) async {
+    try {
+      final response = await ApiService.get(context, '/api/v1/debts/my-debts');
+
+      if (response.statusCode == 200) {
+        List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
+        List<Debt> debts = body.map((dynamic item) => Debt.fromJson(item)).toList();
+        return debts;
+      } else {
+        // Xəta halında boş siyahı qaytar və ya xəta mesajı göstər
+        throw Exception('Mənim borclarımı yükləmək alınmadı');
+      }
+    } catch (e) {
+      // "Unauthorized" xətası ApiService tərəfindən idarə olunur, digər xətalar üçün
+      print(e.toString());
+      throw Exception('Bir xəta baş verdi: $e');
+    }
+  }
+
+  // === YENİ METOD 2: "Mənə olan borclar" üçün ===
+  Future<List<Debt>> getDebtsToMe(BuildContext context) async {
+    try {
+      final response = await ApiService.get(context, '/api/v1/debts/debts-to-me');
+
+      if (response.statusCode == 200) {
+        List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
+        List<Debt> debts = body.map((dynamic item) => Debt.fromJson(item)).toList();
+        return debts;
+      } else {
+        throw Exception('Mənə olan borcları yükləmək alınmadı');
+      }
+    } catch (e) {
+      print(e.toString());
+      throw Exception('Bir xəta baş verdi: $e');
+    }
+  }
+
+
+
+
+
 }

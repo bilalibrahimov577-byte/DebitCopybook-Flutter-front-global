@@ -35,8 +35,8 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
 
     // İki sorğunu eyni anda göndəririk ki, vaxta qənaət edək
     final results = await Future.wait([
-      _debtService.getDebtById(widget.debtId),
-      _debtService.getDebtHistory(widget.debtId),
+      _debtService.getDebtById(context,widget.debtId),
+      _debtService.getDebtHistory(context,widget.debtId),
     ]);
 
     if (mounted) {
@@ -98,8 +98,8 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     setState(() => _isProcessing = true);
 
     final result = isPayment
-        ? await _debtService.makePayment(widget.debtId, amount)
-        : await _debtService.increaseDebt(widget.debtId, amount);
+        ? await _debtService.makePayment(context,widget.debtId, amount)
+        : await _debtService.increaseDebt(context,widget.debtId, amount);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -113,7 +113,7 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
         // Ödənişdən sonra borc silinibsə (backend-dəki məntiqə görə),
         // sadəcə ana səhifəyə qayıdırıq.
         if (isPayment) {
-          final currentDebt = await _debtService.getDebtById(widget.debtId);
+          final currentDebt = await _debtService.getDebtById(context,widget.debtId);
           if(currentDebt == null) {
             Future.delayed(const Duration(seconds: 1), () {
               if (mounted) Navigator.of(context).pop(true);
@@ -133,7 +133,7 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
   // Bu metodlarda dəyişiklik yoxdur
   void _performDelete() async {
     setState(() => _isProcessing = true);
-    bool success = await _debtService.deleteDebt(widget.debtId);
+    bool success = await _debtService.deleteDebt(context,widget.debtId);
     if (!mounted) return;
     if (success) {
       Navigator.of(context).pop(true);

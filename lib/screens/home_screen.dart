@@ -9,6 +9,8 @@ import 'package:borc_defteri/screens/add_debt_screen.dart';
 import 'package:borc_defteri/screens/login_page.dart';
 import 'package:borc_defteri/services/auth_service.dart';
 
+
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.title = 'Borc Dəftəri'});
 
@@ -117,13 +119,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (filter == 'flexible') {
-      fetchedDebts = await _debtService.getFlexibleDebts();
+      //fetchedDebts = await _debtService.getFlexibleDebts();
+      fetchedDebts = await _debtService.getFlexibleDebts(context);
       filterInfo = '"Pulum Olanda" Borcları';
     } else if (filter == 'by_month' && year != null && month != null) {
-      fetchedDebts = await _debtService.getDebtsByYearAndMonth(year, month);
+      //fetchedDebts = await _debtService.getDebtsByYearAndMonth(year, month);
+      fetchedDebts = await _debtService.getDebtsByYearAndMonth(context, year, month);
       filterInfo = '$year / $month-ci Ay Borcları';
     } else {
-      fetchedDebts = await _debtService.getAllDebts();
+      //fetchedDebts = await _debtService.getAllDebts();
+      fetchedDebts = await _debtService.getAllDebts(context);
     }
 
     if (mounted) {
@@ -229,7 +234,8 @@ class _HomeScreenState extends State<HomeScreen> {
               _checkSignInStatusAndLoadDebts();
               return;
             }
-            List<Debt> fetchedDebts = await _debtService.searchDebtsByName(value);
+           // List<Debt> fetchedDebts = await _debtService.searchDebtsByName(value);
+            List<Debt> fetchedDebts = await _debtService.searchDebtsByName(context, value);
             if (mounted) {
               setState(() {
                 _allDebts = fetchedDebts;

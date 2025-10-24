@@ -1,10 +1,8 @@
+// lib/screens/login_page.dart
+
 import 'package:flutter/material.dart';
-
 import 'package:borc_defteri/services/auth_service.dart';
-
-import 'package:borc_defteri/screens/home_screen.dart'; // HomeScreen-i buradan import edirik
-
-// 'package:google_sign_in/google_sign_in.dart'; // Bu paketi birbaşa burada istifadə etmirik, AuthService istifadə edir
+import 'package:borc_defteri/screens/home_screen.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -20,26 +18,22 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-// Rəngli fon üçün Container istifadə edirik
-
+        // Rəngli fon üçün Container istifadə edirik
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
               Color(0xFF6A1B9A), // Tünd bənövşəyi
-
               Color(0xFFAB47BC), // Açıq bənövşəyi
             ],
           ),
         ),
-
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-// Xoş gəldiniz mesajı
-
+              // Xoş gəldiniz mesajı
               const Text(
                 'Borc Dəftərinizə Xoş Gəlmisiniz!',
                 style: TextStyle(
@@ -49,11 +43,8 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 50),
-
-// Google ilə daxil olma mətni
-
+              // Google ilə daxil olma mətni
               const Text(
                 'Daxil olmaq üçün Google hesabınızdan istifadə edin',
                 style: TextStyle(
@@ -62,14 +53,14 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 textAlign: TextAlign.center,
               ),
-
               const SizedBox(height: 20),
-
-// Google düyməsi
-
+              // Google düyməsi
               ElevatedButton.icon(
                 onPressed: () async {
                   bool success = await _authService.signInWithGoogle();
+
+                  // Context-in hələ də etibarlı olduğunu yoxlayırıq (yaxşı praktika)
+                  if (!context.mounted) return;
 
                   if (success) {
                     Navigator.pushReplacement(
@@ -93,7 +84,7 @@ class _LoginPageState extends State<LoginPage> {
                     borderRadius: BorderRadius.circular(30),
                   ),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   elevation: 5,
                 ),
               ),

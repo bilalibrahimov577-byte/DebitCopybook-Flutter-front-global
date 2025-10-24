@@ -110,10 +110,10 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
         Map<String, dynamic> result;
 
         if (_isEditMode) {
-          result = await debtService.updateDebt(
+          result = await debtService.updateDebt(context,
               widget.existingDebt!.id, debtRequest);
         } else {
-          result = await debtService.createDebt(debtRequest);
+          result = await debtService.createDebt(context,debtRequest);
         }
 
         final success = result['success'];
@@ -183,7 +183,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
               children: [
                 TextFormField(
                   controller: _debtorNameController,
-                  decoration: _inputDecoration('Borcalanın adı'),
+                  decoration: _inputDecoration('Şəxsin adı'),
                   validator: (value) {
                     if (value == null || value.isEmpty)
                       return 'Bu xana boş buraxıla bilməz';
