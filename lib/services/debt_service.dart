@@ -1,37 +1,71 @@
 // lib/services/debt_service.dart
 
-import 'package:flutter/material.dart'; // YENİ: BuildContext üçün lazımdır
+import 'package:flutter/material.dart';
 import 'dart:convert';
 import '../models/debt.dart';
 import '../models/debt_request.dart';
 import '../models/debt_history.dart';
-import 'api_service.dart'; // YENİ: Artıq birbaşa ApiService-dən istifadə edirik
+import 'api_service.dart';
 
 class DebtService {
-  // Bütün endpoint-lər üçün əsas hissə. ApiService-dəki baseUrl-ə əlavə olunacaq.
   final String _endpoint = "/api/v1/debts";
 
-  // Bütün borcları gətirir
-  Future<List<Debt>> getAllDebts(BuildContext context) async {
+  // === OPTİMALLAŞDIRMA: Təkrarlanan kodu bir köməkçi metoda çıxardıq ===
+  // Bu metod endpoint-i parametr olaraq alır və borc siyahısını qaytarır.
+  Future<List<Debt>> _fetchDebtList(BuildContext context, String specificEndpoint) async {
     try {
-      final response = await ApiService.get(context, _endpoint);
+      final response = await ApiService.get(context, specificEndpoint);
       if (response.statusCode == 200) {
+        // Bütün metodlarda eyni standart JSON çevirmə funksiyasını istifadə edirik
         return debtListFromJson(response.body);
       }
       return [];
     } catch (e) {
-      // ApiService 401 xətasını özü idarə edir. Bu hissə digər xətalar üçündür.
-      print("getAllDebts xətası: $e");
-      return [];
+      print("Xəta baş verdi ($specificEndpoint): $e");
+      // Xəta halında UI-da göstərmək üçün exception atmaq daha yaxşıdır
+      throw Exception('Məlumatları yükləmək alınmadı.');
     }
   }
 
-  // ID-yə görə bir borcu gətirir
+  // Bütün borcları gətirir
+  Future<List<Debt>> getAllDebts(BuildContext context) async {
+    return _fetchDebtList(context, _endpoint);
+  }
+
+  // Ada görə axtarış edir
+  Future<List<Debt>> searchDebtsByName(BuildContext context, String name) async {
+    if (name.isEmpty) return getAllDebts(context);
+    return _fetchDebtList(context, '$_endpoint/search?name=$name');
+  }
+
+  // İl və aya görə filtrləyir
+  Future<List<Debt>> getDebtsByYearAndMonth(BuildContext context, int year, int month) async {
+    return _fetchDebtList(context, '$_endpoint/filter/by-date?year=$year&month=$month');
+  }
+
+  // "Çevik" borcları gətirir
+  Future<List<Debt>> getFlexibleDebts(BuildContext context) async {
+    return _fetchDebtList(context, '$_endpoint/filter/flexible');
+  }
+
+  // === YENİ METOD 1 (daha təmiz versiya) ===
+  Future<List<Debt>> getMyDebts(BuildContext context) async {
+    return _fetchDebtList(context, '$_endpoint/my-debts');
+  }
+
+  // === YENİ METOD 2 (daha təmiz versiya) ===
+  Future<List<Debt>> getDebtsToMe(BuildContext context) async {
+    return _fetchDebtList(context, '$_endpoint/debts-to-me');
+  }
+
+  // --- Qalan metodlar olduğu kimi qalır, çünki onlar fərqli məntiqə sahibdir ---
+
   Future<Debt?> getDebtById(BuildContext context, int id) async {
     try {
       final response = await ApiService.get(context, '$_endpoint/$id');
       if (response.statusCode == 200) {
-        return Debt.fromJson(json.decode(response.body));
+        // Burada tək bir obyekt olduğu üçün manual çevirmə normaldır
+        return Debt.fromJson(json.decode(utf8.decode(response.bodyBytes)));
       }
       return null;
     } catch (e) {
@@ -40,7 +74,20 @@ class DebtService {
     }
   }
 
-  // Yeni borc yaradır
+  Future<List<DebtHistory>> getDebtHistory(BuildContext context, int debtId) async {
+    try {
+      final response = await ApiService.get(context, '$_endpoint/$debtId/history');
+      if (response.statusCode == 200) {
+        return debtHistoryListFromJson(response.body);
+      }
+      return [];
+    } catch (e) {
+      print("getDebtHistory xətası: $e");
+      return [];
+    }
+  }
+
+  // POST, PUT, DELETE metodları olduğu kimi qalır...
   Future<Map<String, dynamic>> createDebt(BuildContext context, DebtRequest newDebt) async {
     try {
       final response = await ApiService.post(context, _endpoint, body: newDebt.toJson());
@@ -56,7 +103,6 @@ class DebtService {
     }
   }
 
-  // Mövcud borcu yeniləyir
   Future<Map<String, dynamic>> updateDebt(BuildContext context, int id, DebtRequest debtToUpdate) async {
     try {
       final response = await ApiService.put(context, '$_endpoint/$id', body: debtToUpdate.toJson());
@@ -72,7 +118,6 @@ class DebtService {
     }
   }
 
-  // Ödəniş edir
   Future<Map<String, dynamic>> makePayment(BuildContext context, int id, double amount) async {
     try {
       final response = await ApiService.post(context, '$_endpoint/$id/payments', body: {'amount': amount});
@@ -88,7 +133,6 @@ class DebtService {
     }
   }
 
-  // Borcu artırır
   Future<Map<String, dynamic>> increaseDebt(BuildContext context, int id, double amount) async {
     try {
       final response = await ApiService.post(context, '$_endpoint/$id/increase', body: {'amount': amount});
@@ -104,7 +148,6 @@ class DebtService {
     }
   }
 
-  // Borcu silir
   Future<bool> deleteDebt(BuildContext context, int id) async {
     try {
       final response = await ApiService.delete(context, '$_endpoint/$id');
@@ -114,104 +157,4 @@ class DebtService {
       return false;
     }
   }
-
-  // Borcun tarixçəsini gətirir
-  Future<List<DebtHistory>> getDebtHistory(BuildContext context, int debtId) async {
-    try {
-      final response = await ApiService.get(context, '$_endpoint/$debtId/history');
-      if (response.statusCode == 200) {
-        return debtHistoryListFromJson(response.body);
-      }
-      return [];
-    } catch (e) {
-      print("getDebtHistory xətası: $e");
-      return [];
-    }
-  }
-
-  // Ada görə axtarış edir
-  Future<List<Debt>> searchDebtsByName(BuildContext context, String name) async {
-    if (name.isEmpty) return getAllDebts(context); // Axtarış boşdursa, bütün borcları gətir
-    try {
-      final response = await ApiService.get(context, '$_endpoint/search?name=$name');
-      if (response.statusCode == 200) {
-        return debtListFromJson(response.body);
-      }
-      return [];
-    } catch (e) {
-      print("searchDebtsByName xətası: $e");
-      return [];
-    }
-  }
-
-  // İl və aya görə filtrləyir
-  Future<List<Debt>> getDebtsByYearAndMonth(BuildContext context, int year, int month) async {
-    try {
-      final response = await ApiService.get(context, '$_endpoint/filter/by-date?year=$year&month=$month');
-      if (response.statusCode == 200) {
-        return debtListFromJson(response.body);
-      }
-      return [];
-    } catch (e) {
-      print("getDebtsByYearAndMonth xətası: $e");
-      return [];
-    }
-  }
-
-  // "Çevik" borcları gətirir
-  Future<List<Debt>> getFlexibleDebts(BuildContext context) async {
-    try {
-      final response = await ApiService.get(context, '$_endpoint/filter/flexible');
-      if (response.statusCode == 200) {
-        return debtListFromJson(response.body);
-      }
-      return [];
-    } catch (e) {
-      print("getFlexibleDebts xətası: $e");
-      return [];
-    }
-  }
-
-//24 oktyabr 2025-ci il
-  Future<List<Debt>> getMyDebts(BuildContext context) async {
-    try {
-      final response = await ApiService.get(context, '/api/v1/debts/my-debts');
-
-      if (response.statusCode == 200) {
-        List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
-        List<Debt> debts = body.map((dynamic item) => Debt.fromJson(item)).toList();
-        return debts;
-      } else {
-        // Xəta halında boş siyahı qaytar və ya xəta mesajı göstər
-        throw Exception('Mənim borclarımı yükləmək alınmadı');
-      }
-    } catch (e) {
-      // "Unauthorized" xətası ApiService tərəfindən idarə olunur, digər xətalar üçün
-      print(e.toString());
-      throw Exception('Bir xəta baş verdi: $e');
-    }
-  }
-
-  // === YENİ METOD 2: "Mənə olan borclar" üçün ===
-  Future<List<Debt>> getDebtsToMe(BuildContext context) async {
-    try {
-      final response = await ApiService.get(context, '/api/v1/debts/debts-to-me');
-
-      if (response.statusCode == 200) {
-        List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
-        List<Debt> debts = body.map((dynamic item) => Debt.fromJson(item)).toList();
-        return debts;
-      } else {
-        throw Exception('Mənə olan borcları yükləmək alınmadı');
-      }
-    } catch (e) {
-      print(e.toString());
-      throw Exception('Bir xəta baş verdi: $e');
-    }
-  }
-
-
-
-
-
 }

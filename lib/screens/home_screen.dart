@@ -1,6 +1,5 @@
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/material.dart';
-// === ƏLAQƏ: Lazımi kitabxananı import edirik ===
 import 'package:url_launcher/url_launcher.dart';
 import 'package:borc_defteri/services/debt_service.dart';
 import 'package:borc_defteri/models/debt.dart';
@@ -8,8 +7,6 @@ import 'package:borc_defteri/screens/debt_details_screen.dart';
 import 'package:borc_defteri/screens/add_debt_screen.dart';
 import 'package:borc_defteri/screens/login_page.dart';
 import 'package:borc_defteri/services/auth_service.dart';
-
-
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.title = 'Borc Dəftəri'});
@@ -21,7 +18,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // ... sənin bütün dəyişənlərin olduğu kimi qalır ...
   BannerAd? _bannerAd;
   bool _isBannerAdLoaded = false;
   final String _adUnitId = 'ca-app-pub-1488367137709334/1316894904';
@@ -32,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   String _activeFilterInfo = 'Bütün Borclar';
+  String _currentFilterType = 'all';
 
   @override
   void initState() {
@@ -47,9 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // === ƏLAQƏ: Email proqramını açan funksiya ===
   Future<void> _launchEmailApp() async {
-    // DİQQƏT: Buradakı emaili öz email ünvanınla dəyiş!
     const String email = 'ibrahimovbilal9@gmail.com';
     const String subject = 'Borc Dəftəri - Geri Bildiriş';
     const String body = 'Salam,\n\nTətbiqlə bağlı fikirlərim bunlardır:\n\n';
@@ -63,15 +58,14 @@ class _HomeScreenState extends State<HomeScreen> {
     if (await canLaunchUrl(emailLaunchUri)) {
       await launchUrl(emailLaunchUri);
     } else {
-      // Əgər email proqramı tapılmasa, istifadəçiyə bildiriş göstər
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email proqramı tapılmadı!')),
-      );
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Email proqramı tapılmadı!')),
+        );
+      }
     }
   }
-  // ===============================================
 
-  // ... sənin _loadBannerAd, _checkSignInStatusAndLoadDebts, _filterDebts və digər bütün funksiyaların olduğu kimi qalır ...
   void _loadBannerAd() {
     _bannerAd = BannerAd(
       adUnitId: _adUnitId,
@@ -102,41 +96,60 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     } else {
-      _filterDebts('all');
+      _loadDebts();
     }
   }
 
-  Future<void> _filterDebts(String filter, {int? year, int? month}) async {
+  Future<void> _loadDebts({int? year, int? month}) async {
+    if (_isSearching) return;
     setState(() => _isLoading = true);
 
-    List<Debt> fetchedDebts = [];
-    String filterInfo = 'Bütün Borclar';
-    String? token = await _authService.getJwtToken();
+    try {
+      List<Debt> fetchedDebts = [];
+      String filterInfo = 'Bütün Borclar';
 
-    if (token == null) {
-      _checkSignInStatusAndLoadDebts();
-      return;
-    }
+      switch (_currentFilterType) {
+        case 'my_debts':
+          fetchedDebts = await _debtService.getMyDebts(context);
+          filterInfo = 'Mənim Borclarım';
+          break;
+        case 'debts_to_me':
+          fetchedDebts = await _debtService.getDebtsToMe(context);
+          filterInfo = 'Mənə Olan Borclar';
+          break;
+        case 'flexible':
+          fetchedDebts = await _debtService.getFlexibleDebts(context);
+          filterInfo = '"Pulum Olanda" Borcları';
+          break;
+        case 'by_month':
+          if (year != null && month != null) {
+            fetchedDebts = await _debtService.getDebtsByYearAndMonth(context, year, month);
+            filterInfo = '$year / $month-ci Ay Borcları';
+          }
+          break;
+        case 'all':
+        default:
+          fetchedDebts = await _debtService.getAllDebts(context);
+          filterInfo = 'Bütün Borclar';
+          break;
+      }
 
-    if (filter == 'flexible') {
-      //fetchedDebts = await _debtService.getFlexibleDebts();
-      fetchedDebts = await _debtService.getFlexibleDebts(context);
-      filterInfo = '"Pulum Olanda" Borcları';
-    } else if (filter == 'by_month' && year != null && month != null) {
-      //fetchedDebts = await _debtService.getDebtsByYearAndMonth(year, month);
-      fetchedDebts = await _debtService.getDebtsByYearAndMonth(context, year, month);
-      filterInfo = '$year / $month-ci Ay Borcları';
-    } else {
-      //fetchedDebts = await _debtService.getAllDebts();
-      fetchedDebts = await _debtService.getAllDebts(context);
-    }
-
-    if (mounted) {
-      setState(() {
-        _allDebts = fetchedDebts;
-        _isLoading = false;
-        _activeFilterInfo = filterInfo;
-      });
+      if (mounted) {
+        setState(() {
+          _allDebts = fetchedDebts;
+          _activeFilterInfo = filterInfo;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Məlumatları yükləmək alınmadı: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -149,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _isSearching = false;
       _searchController.clear();
     });
-    _filterDebts('all');
+    _loadDebts();
   }
 
   void _showMonthFilterDialog() {
@@ -173,8 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Expanded(
                     child: DropdownButton<int>(
-                      isExpanded: true,
-                      value: selectedYear,
+                      isExpanded: true, value: selectedYear,
                       items: years.map((y) => DropdownMenuItem(value: y, child: Text(y.toString()))).toList(),
                       onChanged: (val) => setDialogState(() => selectedYear = val),
                     ),
@@ -182,8 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: DropdownButton<int>(
-                      isExpanded: true,
-                      value: selectedMonth,
+                      isExpanded: true, value: selectedMonth,
                       items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(months[i]))),
                       onChanged: (val) => setDialogState(() => selectedMonth = val),
                     ),
@@ -195,7 +206,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextButton(
                   onPressed: () {
                     if (selectedYear != null && selectedMonth != null) {
-                      _filterDebts('by_month', year: selectedYear, month: selectedMonth);
+                      setState(() => _currentFilterType = 'by_month');
+                      _loadDebts(year: selectedYear, month: selectedMonth);
                       Navigator.pop(context);
                     }
                   },
@@ -211,7 +223,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   AppBar _buildAppBar() {
     if (_isSearching) {
-      // ... Axtarış üçün olan AppBar olduğu kimi qalır ...
       return AppBar(
         backgroundColor: const Color(0xFF6A1B9A),
         leading: IconButton(
@@ -229,12 +240,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           onChanged: (value) async {
             setState(() => _isLoading = true);
-            String? token = await _authService.getJwtToken();
-            if (token == null) {
-              _checkSignInStatusAndLoadDebts();
-              return;
-            }
-           // List<Debt> fetchedDebts = await _debtService.searchDebtsByName(value);
             List<Debt> fetchedDebts = await _debtService.searchDebtsByName(context, value);
             if (mounted) {
               setState(() {
@@ -250,11 +255,12 @@ class _HomeScreenState extends State<HomeScreen> {
       return AppBar(
         title: Text(widget.title, style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF6A1B9A),
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             tooltip: 'Yenilə',
-            onPressed: () => _filterDebts('all'),
+            onPressed: () => _loadDebts(),
           ),
           IconButton(
             icon: const Icon(Icons.search, color: Colors.white),
@@ -263,21 +269,24 @@ class _HomeScreenState extends State<HomeScreen> {
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list, color: Colors.white),
             onSelected: (value) {
-              if (value == 'all') _filterDebts('all');
-              if (value == 'flexible') _filterDebts('flexible');
-              if (value == 'by_month') _showMonthFilterDialog();
-              // === ƏLAQƏ: Menyudan seçim ediləndə funksiyanı çağırırıq ===
-              if (value == 'contact_us') _launchEmailApp();
+              if (value == 'contact_us') {
+                _launchEmailApp(); return;
+              }
+              if (value == 'by_month') {
+                _showMonthFilterDialog(); return;
+              }
+              setState(() {
+                _currentFilterType = value;
+              });
+              _loadDebts();
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(
-                  value: 'all', child: Text('Bütün Borclar')),
-              const PopupMenuItem<String>(
-                  value: 'flexible', child: Text('"Pulum Olanda"')),
-              const PopupMenuItem<String>(
-                  value: 'by_month', child: Text('İl/Ay üzrə...')),
-              // === ƏLAQƏ: Menyunu ayıran xətt və yeni bənd ===
-              const PopupMenuDivider(), // Ayırıcı xətt
+              const PopupMenuItem<String>(value: 'all', child: Text('Bütün Borclar')),
+              const PopupMenuItem<String>(value: 'my_debts', child: Text('Mənim Borclarım')),
+              const PopupMenuItem<String>(value: 'debts_to_me', child: Text('Mənə Olan Borclar')),
+              const PopupMenuItem<String>(value: 'flexible', child: Text('"Pulum Olanda"')),
+              const PopupMenuItem<String>(value: 'by_month', child: Text('İl/Ay üzrə...')),
+              const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'contact_us',
                 child: Row(
@@ -288,7 +297,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-              // =============================================
             ],
           ),
           IconButton(
@@ -301,7 +309,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ... qalan bütün funksiyalar və build metodu olduğu kimi qalır ...
   void _showSignOutConfirmationDialog() {
     showDialog(
       context: context,
@@ -312,9 +319,7 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: <Widget>[
             TextButton(
               child: const Text('Ləğv Et'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+              onPressed: () => Navigator.of(context).pop(),
             ),
             TextButton(
               child: const Text('Bəli, Çıxış Et'),
@@ -336,32 +341,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateToAddDebtScreen() async {
-    String? token = await _authService.getJwtToken();
-    if (token == null) {
-      _checkSignInStatusAndLoadDebts();
-      return;
+    final result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const AddDebtScreen())
+    );
+    if (result == true) {
+      _loadDebts();
     }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const AddDebtScreen())).then((result) {
-      if (result == true) _filterDebts('all');
-    });
   }
 
   void _navigateToDetailsScreen(int debtId) async {
-    String? token = await _authService.getJwtToken();
-    if (token == null) {
-      _checkSignInStatusAndLoadDebts();
-      return;
+    final result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => DebtDetailsScreen(debtId: debtId))
+    );
+    if (result == true) {
+      _loadDebts();
     }
-    Navigator.push(context, MaterialPageRoute(builder: (context) => DebtDetailsScreen(debtId: debtId))).then((result) {
-      if (result == true) _filterDebts('all');
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final int currentYear = DateTime.now().year;
-    final int currentMonth = DateTime.now().month;
-
     return Scaffold(
       appBar: _buildAppBar(),
       body: Container(
@@ -375,35 +375,58 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(
                 'Göstərilir: $_activeFilterInfo',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF333333),
-                ),
+                style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF333333)),
               ),
             ),
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
                   : _allDebts.isEmpty
-                  ? const Center(
-                child: Text(
-                  "Heç bir borc tapılmadı.",
-                  style: TextStyle(color: Colors.black54, fontSize: 16),
-                ),
-              )
+                  ? const Center(child: Text("Heç bir borc tapılmadı.", style: TextStyle(color: Colors.black54, fontSize: 16)))
                   : ListView.builder(
                 itemCount: _allDebts.length,
                 itemBuilder: (context, index) {
                   final debt = _allDebts[index];
-                  final bool isDueThisMonth = (debt.dueYear == currentYear && debt.dueMonth == currentMonth);
+
+                  // === YENİ və TƏKMİLLƏŞDİRİLMİŞ RƏNG MƏNTİQİ BURADA BAŞLAYIR ===
+                  final now = DateTime.now();
+                  final int currentYear = now.year;
+                  final int currentMonth = now.month;
+
+                  // 1. Borcun vaxtının keçib-keçmədiyini yoxlayırıq
+                  bool isOverdue = false;
+                  // Yalnız tarixi qeyri-müəyyən olmayanları yoxlayırıq
+                  if (!debt.isFlexibleDueDate && debt.dueYear != null && debt.dueMonth != null) {
+                    // Əgər borcun ili keçmiş ildirsə, vaxtı keçib
+                    if (debt.dueYear! < currentYear) {
+                      isOverdue = true;
+                    }
+                    // Əgər il eyni il, amma ay keçmiş aydırsa, yenə vaxtı keçib
+                    else if (debt.dueYear! == currentYear && debt.dueMonth! < currentMonth) {
+                      isOverdue = true;
+                    }
+                  }
+
+                  // 2. Bu ay ödənilməli olub-olmadığını yoxlayırıq
+                  // Yalnız vaxtı keçməyibsə və tarixi qeyri-müəyyən deyilsə yoxlayırıq
+                  final bool isDueThisMonth = !isOverdue &&
+                      !debt.isFlexibleDueDate &&
+                      (debt.dueYear == currentYear && debt.dueMonth == currentMonth);
+
+                  // === RƏNG MƏNTİQİ BURADA BİTİR ===
+
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                     child: Card(
-                      color: isDueThisMonth ? Colors.amber.shade100 : Colors.white,
+                      // === YENİ RƏNG ATAMASI ===
+                      // Prioritet: Qırmızı > Sarı > Ağ
+                      color: isOverdue
+                          ? Colors.red.shade100   // Vaxtı keçibsə, açıq qırmızı
+                          : isDueThisMonth
+                          ? Colors.amber.shade100 // Bu aydırsa, sarı
+                          : Colors.white,           // Heç biri deyilsə, ağ
                       elevation: 4,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
                         onTap: () => _navigateToDetailsScreen(debt.id),
@@ -412,8 +435,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Row(
                             children: [
                               Container(
-                                width: 50,
-                                height: 50,
+                                width: 50, height: 50,
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFAB47BC),
                                   borderRadius: BorderRadius.circular(10),
@@ -421,11 +443,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Center(
                                   child: Text(
                                     '${debt.debtAmount.toInt()}₼',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                                   ),
                                 ),
                               ),
@@ -434,21 +452,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      debt.debtorName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 18,
-                                        color: Color(0xFF333333),
-                                      ),
-                                    ),
+                                    Text(debt.debtorName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF333333))),
                                     const SizedBox(height: 4),
                                     Text(
-                                      debt.description ?? 'Açıqlama yoxdur',
-                                      style: const TextStyle(
-                                        color: Colors.black54,
-                                        fontSize: 14,
-                                      ),
+                                      debt.description != null && debt.description!.isNotEmpty ? debt.description! : 'Növü təyin edilməyib',
+                                      style: const TextStyle(color: Colors.black54, fontSize: 14),
                                     ),
                                   ],
                                 ),
