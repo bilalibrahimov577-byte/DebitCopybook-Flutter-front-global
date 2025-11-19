@@ -1,139 +1,149 @@
-import 'package:borc_defteri/screens/add_debt_screen.dart';
+// lib/screens/debt_details_screen.dart
+
+import 'package:borc_defteri/models/shared_debt/update_proposal_request.dart';
+import 'package:borc_defteri/models/unified_debt_item.dart';
+import 'package:borc_defteri/services/shared_debt_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart'; // YENİ: Tarixləri formatlamaq üçün
+import 'package:intl/intl.dart';
 import '../models/debt.dart';
-import '../models/debt_history.dart'; // YENİ: Tarixçə modeli
+import '../models/debt_history.dart';
+
+import '../models/shared_debt/shared_debt.dart';
 import '../services/debt_service.dart';
-import '../services/auth_service.dart';
+import 'add_debt_screen.dart';
 
 class DebtDetailsScreen extends StatefulWidget {
-  final int debtId;
-  const DebtDetailsScreen({super.key, required this.debtId});
+  final UnifiedDebtItem item;
+
+  const DebtDetailsScreen({super.key, required this.item});
 
   @override
   State<DebtDetailsScreen> createState() => _DebtDetailsScreenState();
 }
 
 class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
-  Debt? _debt;
-  List<DebtHistory> _history = []; // YENİ: Tarixçə siyahısı
+  late UnifiedDebtItem _currentItem;
+  List<DebtHistory> _history = [];
   bool _isLoading = true;
   bool _isProcessing = false;
   final DebtService _debtService = DebtService();
+  final SharedDebtService _sharedDebtService = SharedDebtService();
   bool _needsRefreshOnExit = false;
 
   @override
   void initState() {
     super.initState();
+    _currentItem = widget.item;
     _fetchData();
   }
 
-  // YENİ: Həm borc detallarını, həm də tarixçəni eyni anda çəkir
   Future<void> _fetchData() async {
-    if (!_isLoading) setState(() => _isLoading = true);
-
-    // İki sorğunu eyni anda göndəririk ki, vaxta qənaət edək
-    final results = await Future.wait([
-      _debtService.getDebtById(context,widget.debtId),
-      _debtService.getDebtHistory(context,widget.debtId),
-    ]);
-
-    if (mounted) {
-      setState(() {
-        _debt = results[0] as Debt?;
-        _history = results[1] as List<DebtHistory>;
-        _isLoading = false;
-      });
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final debtId = _currentItem.type == DebtType.personal
+          ? (_currentItem.data as Debt).id
+          : (_currentItem.data as SharedDebt).id;
+      _history = await _debtService.getDebtHistory(context, debtId);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Məlumatlar yüklənə bilmədi: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  void _showAmountDialog({required bool isPayment}) {
+  void _showAmountDialog({required bool isPayment, required bool isPersonal}) {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(isPayment ? 'Ödəniş Et' : 'Məbləği Artır', style: const TextStyle(color: Color(0xFF6A1B9A))),
-          content: Form(
-            key: formKey,
-            child: TextFormField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
-              decoration: const InputDecoration(labelText: 'Məbləğ (₼)', border: OutlineInputBorder()),
-              validator: (value) {
-                if (value == null || value.isEmpty) return 'Məbləğ boş ola bilməz';
-                final amount = double.tryParse(value);
-                if (amount == null) return 'Düzgün rəqəm daxil edin';
-                if (amount <= 0) return 'Məbləğ 0-dan böyük olmalıdır';
-                if (isPayment && _debt != null && amount > _debt!.debtAmount) return 'Ödəniş borcdan çox ola bilməz';
-                return null;
-              },
-            ),
+    final currentAmount = isPersonal
+        ? (_currentItem.data as Debt).debtAmount
+        : (_currentItem.data as SharedDebt).debtAmount;
+
+    showDialog(context: context, builder: (context) {
+      return AlertDialog(
+        title: Text(isPersonal
+            ? (isPayment ? 'Ödəniş Et' : 'Məbləği Artır')
+            : (isPayment ? 'Ödəniş Təklif Et' : 'Məbləği Artırmaq üçün Təklif')),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+            decoration: const InputDecoration(labelText: 'Məbləğ (₼)', border: OutlineInputBorder()),
+            validator: (value) {
+              if (value == null || value.isEmpty) return 'Məbləğ boş ola bilməz';
+              final amount = double.tryParse(value);
+              if (amount == null || amount <= 0) return 'Məbləğ 0-dan böyük olmalıdır';
+              if (isPersonal && isPayment && amount > currentAmount) return 'Ödəniş borcdan çox ola bilməz';
+              return null;
+            },
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ləğv Et')),
-            TextButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  final amount = double.parse(controller.text);
-                  Navigator.pop(context);
-                  _processTransaction(amount: amount, isPayment: isPayment);
-                }
-              },
-              child: const Text('Təsdiqlə', style: TextStyle(color: Color(0xFF6A1B9A))),
-            ),
-          ],
-        );
-      },
-    );
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ləğv Et')),
+          ElevatedButton(onPressed: () {
+            if (formKey.currentState!.validate()) {
+              final amount = double.parse(controller.text);
+              Navigator.pop(context);
+
+              if (isPersonal) {
+                _processPersonalDebtTransaction(amount: amount, isPayment: isPayment);
+              } else {
+                double newAmount = isPayment ? (currentAmount - amount) : (currentAmount + amount);
+                if (newAmount < 0) newAmount = 0;
+                _sendUpdateProposal(proposedAmount: newAmount);
+              }
+            }
+          }, child: Text(isPersonal ? 'Təsdiqlə' : 'Təklif Göndər')),
+        ],
+      );
+    });
   }
 
-  // YENİLƏNDİ: Yeni cavab formatı ilə işləyir
-  Future<void> _processTransaction({required double amount, required bool isPayment}) async {
+  Future<void> _processPersonalDebtTransaction({required double amount, required bool isPayment}) async {
     setState(() => _isProcessing = true);
-
-    final result = isPayment
-        ? await _debtService.makePayment(context,widget.debtId, amount)
-        : await _debtService.increaseDebt(context,widget.debtId, amount);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result['message'] ?? 'Bilinməyən cavab'),
-        backgroundColor: result['success'] ? Colors.green : Colors.red,
-      ));
-
-      if (result['success']) {
-        _needsRefreshOnExit = true;
-
-        // Ödənişdən sonra borc silinibsə (backend-dəki məntiqə görə),
-        // sadəcə ana səhifəyə qayıdırıq.
-        if (isPayment) {
-          final currentDebt = await _debtService.getDebtById(context,widget.debtId);
-          if(currentDebt == null) {
-            Future.delayed(const Duration(seconds: 1), () {
-              if (mounted) Navigator.of(context).pop(true);
+    final debtId = (_currentItem.data as Debt).id;
+    try {
+      final result = isPayment
+          ? await _debtService.makePayment(context, debtId, amount)
+          : await _debtService.increaseDebt(context, debtId, amount);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result['message'] ?? 'Əməliyyat tamamlandı'),
+          backgroundColor: result['success'] ? Colors.green : Colors.red,
+        ));
+        if (result['success']) {
+          _needsRefreshOnExit = true;
+          final updatedDebt = await _debtService.getDebtById(context, debtId);
+          if (updatedDebt == null) {
+            Navigator.pop(context, true);
+          } else {
+            setState(() {
+              _currentItem = UnifiedDebtItem.fromPersonalDebt(updatedDebt);
             });
-            return;
+            await _fetchData();
           }
         }
-
-        // Əks halda, həm detalları, həm də tarixçəni yeniləyirik
-        await _fetchData();
       }
-
-      setState(() => _isProcessing = false);
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Xəta: $e"), backgroundColor: Colors.red));
+    } finally {
+      if(mounted) setState(() => _isProcessing = false);
     }
   }
 
-  // Bu metodlarda dəyişiklik yoxdur
   void _performDelete() async {
     setState(() => _isProcessing = true);
-    bool success = await _debtService.deleteDebt(context,widget.debtId);
+    final debtId = (_currentItem.data as Debt).id;
+    final success = await _debtService.deleteDebt(context, debtId);
     if (!mounted) return;
     if (success) {
       Navigator.of(context).pop(true);
@@ -144,30 +154,127 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
   }
 
   void _showDeleteConfirmationDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Silməni təsdiqlə'),
-          content: const Text('Bu borcu silməyə əminsinizmi?'),
-          actions: <Widget>[
-            TextButton(child: const Text('Ləğv Et'), onPressed: () => Navigator.of(context).pop()),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('Bəli, Sil'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                _performDelete();
-              },
+    showDialog(context: context, builder: (BuildContext context) {
+      return AlertDialog(title: const Text('Silməni təsdiqlə'), content: const Text('Bu borcu silməyə əminsinizmi?'), actions: <Widget>[
+        TextButton(child: const Text('Ləğv Et'), onPressed: () => Navigator.of(context).pop()),
+        TextButton(style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text('Bəli, Sil'), onPressed: () {
+          Navigator.of(context).pop();
+          _performDelete();
+        }),
+      ]);
+    });
+  }
+
+  void _showDeleteProposalDialog() {
+    showDialog(context: context, builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Text('Silmə Təklifi'),
+        content: const Text('Bu borcun ləğv edilməsi üçün qarşı tərəfə təklif göndərməyə əminsinizmi?'),
+        actions: <Widget>[
+          TextButton(child: const Text('Ləğv Et'), onPressed: () => Navigator.of(context).pop()),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Bəli, Təklif Göndər'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _sendUpdateProposal(proposedAmount: 0);
+            },
+          ),
+        ],
+      );
+    });
+  }
+
+  void _showProposeUpdateDialog() {
+    final amountController = TextEditingController();
+    final notesController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(context: context, builder: (context){
+      return AlertDialog(
+        title: const Text("Dəyişiklik Təklif Et"),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                  decoration: InputDecoration(labelText: "Yeni məbləğ (istəyə bağlı)", hintText: (_currentItem.data as SharedDebt).debtAmount.toStringAsFixed(2)),
+                  validator: (value) {
+                    if (value != null && value.isNotEmpty) {
+                      final amount = double.tryParse(value);
+                      if (amount == null) return 'Düzgün məbləğ daxil edin';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: notesController,
+                  decoration: InputDecoration(labelText: "Yeni qeydlər (istəyə bağlı)", hintText: (_currentItem.data as SharedDebt).notes ?? ""),
+                ),
+              ],
             ),
-          ],
-        );
-      },
-    );
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Ləğv Et")),
+          ElevatedButton(onPressed: () {
+            if (formKey.currentState!.validate()) {
+              if (amountController.text.isEmpty && notesController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ən az bir sahəni doldurun!")));
+                return;
+              }
+              Navigator.pop(context);
+              _sendUpdateProposal(
+                proposedAmount: amountController.text.isNotEmpty ? double.parse(amountController.text) : null,
+                proposedNotes: notesController.text.isNotEmpty ? notesController.text : null,
+              );
+            }
+          }, child: const Text("Təklif Göndər")),
+        ],
+      );
+    });
+  }
+
+  Future<void> _sendUpdateProposal({double? proposedAmount, String? proposedNotes}) async {
+    setState(() => _isProcessing = true);
+    final debtId = (_currentItem.data as SharedDebt).id;
+    try {
+      final request = UpdateProposalRequest(proposedAmount: proposedAmount, proposedNotes: proposedNotes);
+      await _sharedDebtService.createUpdateProposal(context, debtId, request);
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Təklif uğurla göndərildi!"), backgroundColor: Colors.green));
+        _needsRefreshOnExit = true;
+      }
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Xəta baş verdi: $e"), backgroundColor: Colors.red));
+    } finally {
+      if(mounted) setState(() => _isProcessing = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isPersonal = _currentItem.type == DebtType.personal;
+    final debtData = _currentItem.data;
+
+    final String debtorName;
+    final double debtAmount;
+    if (isPersonal) {
+      final debt = debtData as Debt;
+      debtorName = debt.debtorName;
+      debtAmount = debt.debtAmount;
+    } else {
+      final debt = debtData as SharedDebt;
+      debtorName = debt.debtorName;
+      debtAmount = debt.debtAmount;
+    }
+
     return WillPopScope(
       onWillPop: () async {
         Navigator.pop(context, _needsRefreshOnExit);
@@ -176,133 +283,142 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF0F2F5),
         appBar: AppBar(
-          title: Text(_debt?.debtorName ?? 'Borc Məlumatları', style: const TextStyle(color: Colors.white)),
+          title: Text(debtorName, style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF6A1B9A),
           leading: BackButton(color: Colors.white, onPressed: () => Navigator.pop(context, _needsRefreshOnExit)),
           actions: [
-            if (_isProcessing)
-              const Padding(padding: EdgeInsets.all(16.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3,))),
-            if (!_isLoading && !_isProcessing)
+            if (_isProcessing) const Padding(padding: EdgeInsets.all(16.0), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3,))),
+            if (!_isLoading && !_isProcessing) ...[
+              // ===== DÜZƏLİŞ BURADADIR =====
+              // "Redaktə et" düyməsini yalnız `isPersonal` true olanda göstəririk
+              if (isPersonal)
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.white),
+                  tooltip: 'Redaktə Et',
+                  onPressed: () {
+                    // Artıq if-else yoxdur, birbaşa redaktə ekranını açırıq
+                    Navigator.push<bool>(context, MaterialPageRoute(builder: (context) => AddDebtScreen(existingDebt: debtData as Debt)))
+                        .then((result) async { if (result == true) { _needsRefreshOnExit = true; await _fetchData(); }});
+                  },
+                ),
+
+              // Silmə düyməsi hər zaman görünür, amma içindəki məntiq fərqlidir
               IconButton(
-                icon: const Icon(Icons.edit, color: Colors.white),
+                icon: const Icon(Icons.delete, color: Colors.red),
+                tooltip: 'Sil',
                 onPressed: () {
-                  if (_debt != null) {
-                    Navigator.push<bool>(context, MaterialPageRoute(builder: (context) => AddDebtScreen(existingDebt: _debt!)))
-                        .then((result) {
-                      if (result == true) {
-                        _fetchData(); // _fetchDebtDetails -> _fetchData
-                        _needsRefreshOnExit = true;
-                      }
-                    });
+                  if (isPersonal) {
+                    _showDeleteConfirmationDialog();
+                  } else {
+                    _showDeleteProposalDialog();
                   }
                 },
               ),
-            if (!_isLoading && !_isProcessing)
-              IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: _showDeleteConfirmationDialog),
+            ]
           ],
         ),
         body: _isLoading
             ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
-            : _debt == null
-            ? const Center(child: Text('Məlumat tapılmadı.'))
-            : Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Column(
-                children: [
-                  Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    color: const Color(0xFF6A1B9A),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
-                      child: Column(
-                        children: [
-                          const Text('Qalıq Borc', style: TextStyle(color: Colors.white70, fontSize: 16)),
-                          const SizedBox(height: 8),
-                          Text('${_debt!.debtAmount.toStringAsFixed(2)} ₼', style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isProcessing ? null : () => _showAmountDialog(isPayment: false),
-                          icon: const Icon(Icons.add_circle_outline, color: Colors.white),
-                          label: const Text('Məbləği Artır', style: TextStyle(color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isProcessing ? null : () => _showAmountDialog(isPayment: true),
-                          icon: const Icon(Icons.remove_circle_outline, color: Colors.white),
-                          label: const Text('Ödəniş Et', style: TextStyle(color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Text("Əməliyyat Tarixçəsi", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black54)),
-            ),
-            // YENİ: Tarixçə siyahısı
-            Expanded(
-              child: _history.isEmpty
-                  ? const Center(child: Text("Heç bir əməliyyat tapılmadı."))
-                  : ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                itemCount: _history.length,
-                itemBuilder: (context, index) {
-                  final historyItem = _history[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
-                    child: ListTile(
-                      leading: _getHistoryIcon(historyItem.eventType),
-                      title: Text(historyItem.description),
-                      subtitle: Text(DateFormat('dd.MM.yyyy, HH:mm').format(historyItem.eventDate.toLocal())),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
+            : Column(children: [
+          _buildHeader(debtAmount, isPersonal, debtData),
+          _buildActionButtons(isPersonal),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+            child: Align(alignment: Alignment.centerLeft, child: Text("Əməliyyat Tarixçəsi", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black54))),
+          ),
+          _buildHistoryList(),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildHeader(double amount, bool isPersonal, dynamic debtData) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        color: isPersonal ? const Color(0xFF6A1B9A) : Colors.blue.shade700,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
+          child: Column(
+            children: [
+              Text(isPersonal ? 'Qalıq Borc (Şəxsi)' : 'Qalıq Borc (Qarşılıqlı)', style: const TextStyle(color: Colors.white70, fontSize: 16)),
+              const SizedBox(height: 8),
+              Text('${amount.toStringAsFixed(2)} ₼', style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold)),
+              if(!isPersonal) ...[
+                const SizedBox(height: 10),
+                Text("Qarşı tərəf: ${(debtData as SharedDebt).counterpartyUser.name}", style: const TextStyle(color: Colors.white, fontSize: 14)),
+              ]
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // YENİ: Tarixçə növünə görə ikon qaytaran köməkçi funksiya
-  Widget _getHistoryIcon(String eventType) {
-    switch (eventType) {
-      case 'CREATED':
-        return const Icon(Icons.add_comment, color: Colors.blue);
-      case 'UPDATED':
-        return const Icon(Icons.edit_note, color: Colors.orange);
-      case 'PAYMENT':
-        return const Icon(Icons.payment, color: Colors.green);
-      default:
-        return const Icon(Icons.info, color: Colors.grey);
-    }
+  Widget _buildActionButtons(bool isPersonal) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(children: [
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: _isProcessing ? null : () => _showAmountDialog(isPayment: false, isPersonal: isPersonal),
+            icon: const Icon(Icons.add_circle_outline),
+            label: Text(isPersonal ? 'Məbləği Artır' : 'Artırmaq üçün Təklif'),
+            style: ElevatedButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: _isProcessing ? null : () => _showAmountDialog(isPayment: true, isPersonal: isPersonal),
+            icon: const Icon(Icons.remove_circle_outline),
+            label: Text(isPersonal ? 'Ödəniş Et' : 'Ödəniş Təklif Et'),
+            style: ElevatedButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.green,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+  Widget _buildHistoryList() {
+    return Expanded(
+      child: _history.isEmpty
+          ? const Center(child: Text("Heç bir əməliyyat tapılmadı."))
+          : ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+        itemCount: _history.length,
+        itemBuilder: (context, index) {
+          final historyItem = _history[index];
+          return Card(
+            margin: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
+            child: ListTile(
+              leading: _getHistoryIcon(historyItem.eventType),
+              title: Text(historyItem.description),
+              subtitle: Text(DateFormat('dd.MM.yyyy, HH:mm').format(historyItem.eventDate.toLocal())),
+            ),
+          );
+        },
+      ),
+    );
   }
 
-// Bu metod artıq lazım deyil, onun yerinə tarixçə istifadə olunur
-// Widget _buildDetailRow(String title, String value) { ... }
+  Icon _getHistoryIcon(String eventType) {
+    switch (eventType) {
+      case 'CREATED': return const Icon(Icons.add_comment, color: Colors.blue);
+      case 'UPDATED': return const Icon(Icons.edit_note, color: Colors.orange);
+      case 'PAYMENT': return const Icon(Icons.payment, color: Colors.green);
+      default: return const Icon(Icons.info, color: Colors.grey);
+    }
+  }
 }

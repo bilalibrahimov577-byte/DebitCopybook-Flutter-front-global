@@ -60,8 +60,8 @@ class Debt {
 
       dueMonth: json['dueMonth'],
 
-      isFlexibleDueDate: json['isFlexibleDueDate'],
-
+     // isFlexibleDueDate: json['isFlexibleDueDate'],
+      isFlexibleDueDate: json['isFlexibleDueDate'] ?? false,
       notes: json['notes'],
     );
   }

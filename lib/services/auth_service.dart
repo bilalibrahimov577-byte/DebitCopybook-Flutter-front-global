@@ -14,9 +14,11 @@ class AuthService {
     serverClientId: '1073865818355-am5kd3qm1otm22f6htt3n8h0ogq753fv.apps.googleusercontent.com',
   );
 
-  final FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
-  final String _baseUrl = 'https://debitcopybook-backend-global-c9pw.onrender.com';
+  // URL-ləri bir mərkəzdən idarə etmək daha yaxşıdır, amma hələlik belə qalsın
+  //final String _baseUrl = 'https://debitcopybook-backend-global-c9pw.onrender.com';
+  final String _baseUrl = 'https://debitcopybook-backend-global-test1.onrender.com';
 
   // Google ilə daxil olma prosesini idarə edir.
   Future<bool> signInWithGoogle() async {
@@ -44,14 +46,24 @@ class AuthService {
 
           // JWT tokeni və yaradılma tarixini təhlükəsiz şəkildə yadda saxla
           await _secureStorage.write(key: 'jwt_token', value: jwtToken);
+         // await _secureStorage.write(key: 'jwt_token_created_at', value: DateTime.now().toIso8G01String());
           await _secureStorage.write(key: 'jwt_token_created_at', value: DateTime.now().toIso8601String());
-
           print('Daxil oldu! JWT Token: $jwtToken');
 
           // İstifadəçi məlumatlarını da yadda saxla
           await _secureStorage.write(key: 'user_id', value: responseBody['userId'].toString());
           await _secureStorage.write(key: 'user_name', value: responseBody['userName']);
           await _secureStorage.write(key: 'user_email', value: responseBody['userEmail']);
+
+          // --- ƏSAS DƏYİŞİKLİK BURADADIR ---
+          // Backend-dən gələn 'userDebtId' sahəsini yoxlayıb yadda saxlayırıq
+          if (responseBody.containsKey('userDebtId') && responseBody['userDebtId'] != null) {
+            await _secureStorage.write(key: 'user_debt_id', value: responseBody['userDebtId']);
+            print("İstifadəçi daxil oldu və Borc ID-si yadda saxlandı: ${responseBody['userDebtId']}");
+          } else {
+            print("XƏBƏRDARLIQ: Backend cavabında 'userDebtId' tapılmadı!");
+          }
+          // ---------------------------------
 
           return true; // Uğurlu daxil oldu
         } else {
@@ -77,10 +89,15 @@ class AuthService {
     await _googleSignIn.signOut();
     // Bütün təhlükəsiz yaddaşı təmizləyirik
     await _secureStorage.delete(key: 'jwt_token');
-    await _secureStorage.delete(key: 'jwt_token_created_at'); // <-- BU ƏLAVƏ OLUNDU
+    await _secureStorage.delete(key: 'jwt_token_created_at');
     await _secureStorage.delete(key: 'user_id');
     await _secureStorage.delete(key: 'user_name');
     await _secureStorage.delete(key: 'user_email');
+
+    // --- ƏSAS DƏYİŞİKLİK BURADADIR ---
+    await _secureStorage.delete(key: 'user_debt_id');
+    // ---------------------------------
+
     print("İstifadəçi çıxış etdi və bütün məlumatlar təmizləndi.");
   }
 
@@ -90,33 +107,33 @@ class AuthService {
     return token != null && token.isNotEmpty;
   }
 
-  // Bu funksiya əvvəllər `getTokenCreatedAt` adlanırdı, amma artıq istifadə edilmir.
-  // İstəsən saxlaya, istəsən silə bilərsən. Zərəri yoxdur.
   Future<DateTime?> getTokenCreatedAt() async {
     final createdAtStr = await _secureStorage.read(key: 'jwt_token_created_at');
     if (createdAtStr == null) return null;
     return DateTime.tryParse(createdAtStr);
   }
 
-  // === YENİ FUNKSİYA: Tokenin vaxtının keçib-keçmədiyini yoxlayır ===
   Future<bool> isTokenExpired() async {
     final createdAtStr = await _secureStorage.read(key: 'jwt_token_created_at');
-
-    // Əgər yaradılma tarixi yoxdursa, token də yoxdur, deməli "vaxtı keçmiş" hesab edirik
     if (createdAtStr == null) {
       return true;
     }
-
     final createdAt = DateTime.tryParse(createdAtStr);
     if (createdAt == null) {
       return true;
     }
-
-    // İndiki vaxtla yaradılma vaxtı arasındakı fərqi saatla hesablayırıq
     final differenceInMinutes = DateTime.now().difference(createdAt).inMinutes;
+    print("Tokenin yaranmasından $differenceInMinutes dəqiqə keçib.");
+    // Tokenin vaxtını dəqiqə ilə yoxlayırıq, məsələn 1 gün = 1440 dəqiqə
+    return differenceInMinutes >= 1440; // 24 saat
+  }
 
-    // Əgər fərq 24 saatdan çoxdursa və ya bərabərdirsə, vaxtı keçmişdir (true)
-    print("Tokenin yaranmasından $differenceInMinutes saat keçib.");
-    return differenceInMinutes >= 10;
+  Future<String?> getUserDebtId() async {
+    return await _secureStorage.read(key: 'user_debt_id');
+  }
+
+  // Bu metoda ehtiyac yox idi, amma zərər verməməsi üçün saxlayıram
+  Future<String?> getUserUniqueId() async {
+    return await _secureStorage.read(key: 'user_id');
   }
 }

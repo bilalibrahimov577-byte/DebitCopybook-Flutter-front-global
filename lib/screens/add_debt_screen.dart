@@ -1,10 +1,16 @@
 // lib/screens/add_debt_screen.dart
 
+import 'package:borc_defteri/models/shared_debt/shared_debt_request.dart';
+import 'package:borc_defteri/services/auth_service.dart';
+import 'package:borc_defteri/services/shared_debt_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/debt.dart';
 import '../models/debt_request.dart';
 import '../services/debt_service.dart';
+
+// Borc yaratma növünü müəyyən etmək üçün enum
+enum DebtCreationType { personal, shared }
 
 class AddDebtScreen extends StatefulWidget {
   final Debt? existingDebt;
@@ -17,24 +23,30 @@ class AddDebtScreen extends StatefulWidget {
 
 class _AddDebtScreenState extends State<AddDebtScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _debtorNameController = TextEditingController();
+
+  // Ortaq Controller-lər
   final _debtAmountController = TextEditingController();
   final _notesController = TextEditingController();
+  final _debtorNameController = TextEditingController();
 
-  // === DƏYİŞDİRİLDİ: Açıqlama controller-i ləğv edildi ===
-  // final _descriptionController = TextEditingController();
+  // Qarşılıqlı borc üçün Controller
+  final _counterpartyIdController = TextEditingController();
 
-  // === YENİ: Seçilmiş borc növünü saxlamaq üçün dəyişən ===
-  String? _selectedDebtType;
-
-  // === YENİ: Backend-ə göndəriləcək dəqiq mətnləri saxlamaq üçün sabit dəyərlər ===
-  final String myDebtValue = 'mənim borcum';
-  final String debtToMeValue = 'mənə olan borclar';
-
+  // Formanın vəziyyətini idarə edən dəyişənlər
   bool _isSaving = false;
   bool _isFlexible = false;
   int? _selectedYear;
   int? _selectedMonth;
+  String? _selectedPersonalDebtType; // 'mənim borcum' və ya 'mənə olan borc'
+
+  // Seçilmiş borc yaratma növü
+  DebtCreationType _creationType = DebtCreationType.personal;
+
+  // Servislər
+  final _debtService = DebtService();
+  final _sharedDebtService = SharedDebtService();
+  final _authService = AuthService();
+  String? _myDebtId; // İstifadəçinin öz Borc ID-si
 
   bool get _isEditMode => widget.existingDebt != null;
 
@@ -47,9 +59,12 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
   @override
   void initState() {
     super.initState();
+    _fetchMyDebtId();
 
     if (_isEditMode) {
+      _creationType = DebtCreationType.personal;
       final debt = widget.existingDebt!;
+
       _debtorNameController.text = debt.debtorName;
       _debtAmountController.text = debt.debtAmount.toStringAsFixed(2);
       _notesController.text = debt.notes ?? '';
@@ -57,83 +72,111 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
       _selectedYear = debt.dueYear;
       _selectedMonth = debt.dueMonth;
 
-      // === DƏYİŞDİRİLDİ: Redaktə rejimində description-u seçilmiş növə təyin edirik ===
-      // _descriptionController.text = debt.description ?? '';
-
-      // Əgər köhnə borcun description-u bizim dəyərlərdən birinə uyğundursa,
-      // Dropdown-da həmin dəyəri seçilmiş göstər.
-      if (debt.description == myDebtValue || debt.description == debtToMeValue) {
-        _selectedDebtType = debt.description;
+      const validDebtTypes = ['mənim borcum', 'mənə olan borclar'];
+      if (validDebtTypes.contains(debt.description)) {
+        _selectedPersonalDebtType = debt.description;
+      } else {
+        _selectedPersonalDebtType = null;
       }
     }
   }
 
+  Future<void> _fetchMyDebtId() async {
+    _myDebtId = await _authService.getUserDebtId();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   Future<void> _saveDebt() async {
-    if (_formKey.currentState!.validate()) {
-      if (!_isFlexible && (_selectedYear == null || _selectedMonth == null)) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Zəhmət olmasa, qaytarılma tarixini tam seçin.')));
-        return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    if (!_isFlexible && (_selectedYear == null || _selectedMonth == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Zəhmət olmasa, qaytarılma tarixini tam seçin.')));
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      if (_creationType == DebtCreationType.personal) {
+        await _savePersonalDebt();
+      } else {
+        await _saveSharedDebt();
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Xəta: ${e.toString()}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
 
-      setState(() => _isSaving = true);
+  Future<void> _savePersonalDebt() async {
+    final debtRequest = DebtRequest(
+      debtorName: _debtorNameController.text,
+      description: _selectedPersonalDebtType,
+      debtAmount: double.parse(_debtAmountController.text),
+      notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+      isFlexibleDueDate: _isFlexible,
+      dueYear: _isFlexible ? null : _selectedYear,
+      dueMonth: _isFlexible ? null : _selectedMonth,
+    );
 
-      final debtService = DebtService();
+    Map<String, dynamic> result;
+    if (_isEditMode) {
+      result = await _debtService.updateDebt(context, widget.existingDebt!.id, debtRequest);
+    } else {
+      result = await _debtService.createDebt(context, debtRequest);
+    }
 
-      // === DƏYİŞDİRİLDİ: DebtRequest yaradanda description-u controller-dən yox, _selectedDebtType-dan alırıq ===
-      final debtRequest = DebtRequest(
-        debtorName: _debtorNameController.text,
-        description: _selectedDebtType, // Məcburi seçim olduğu üçün artıq boş ola bilməz.
-        debtAmount: double.parse(_debtAmountController.text),
-        notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-        isFlexibleDueDate: _isFlexible,
-        dueYear: _isFlexible ? null : _selectedYear,
-        dueMonth: _isFlexible ? null : _selectedMonth,
+    if (mounted && (result['success'] ?? false)) {
+      Navigator.of(context).pop(true);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message'] ?? "Bilinməyən xəta"), backgroundColor: Colors.red),
       );
+    }
+  }
 
-      try {
-        Map<String, dynamic> result;
-        if (_isEditMode) {
-          result = await debtService.updateDebt(context, widget.existingDebt!.id, debtRequest);
-        } else {
-          result = await debtService.createDebt(context, debtRequest);
-        }
+  Future<void> _saveSharedDebt() async {
+    // ===== DƏYİŞİKLİK BURADADIR =====
+    // `debtorName` üçün boş bir dəyər göndəririk, çünki backend onu onsuz da özü təyin edəcək.
+    // `_debtorNameController.text` artıq burada istifadə olunmur.
+    final request = SharedDebtRequest(
+      counterpartyDebtId: _counterpartyIdController.text,
+      debtorName: "", // Backend bu sahəni onsuz da qarşı tərəfin adına görə dolduracaq
+      debtAmount: double.parse(_debtAmountController.text),
+      description: _selectedPersonalDebtType,
+      notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+      isFlexibleDueDate: _isFlexible,
+      dueYear: _isFlexible ? null : _selectedYear,
+      dueMonth: _isFlexible ? null : _selectedMonth,
+    );
 
-        final success = result['success'];
-        final message = result['message'];
+    await _sharedDebtService.createSharedDebtRequest(context, request);
 
-        if (!mounted) return;
-
-        if (success) {
-          Navigator.of(context).pop(true);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message), backgroundColor: Colors.red),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Gözlənilməyən xəta baş verdi.'),
-                backgroundColor: Colors.red),
-          );
-        }
-      } finally {
-        if (mounted) {
-          setState(() => _isSaving = false);
-        }
-      }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
+      );
+      Navigator.of(context).pop(true);
     }
   }
 
   @override
   void dispose() {
-    _debtorNameController.dispose();
     _debtAmountController.dispose();
     _notesController.dispose();
-    // === DƏYİŞDİRİLDİ: _descriptionController ləğv edildi ===
-    // _descriptionController.dispose();
+    _debtorNameController.dispose();
+    _counterpartyIdController.dispose();
     super.dispose();
   }
 
@@ -142,102 +185,90 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
-        title: Text(_isEditMode ? 'Borcu Dəyiş' : 'Yeni Borc Əlavə Et',
-            style: const TextStyle(color: Colors.white)),
+        title: Text(_isEditMode ? 'Borcu Dəyiş' : 'Yeni Borc Yarat', style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF6A1B9A),
         iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(16.0),
           child: Form(
             key: _formKey,
             child: ListView(
               children: [
-                TextFormField(
-                  controller: _debtorNameController,
-                  decoration: _inputDecoration('Şəxsin adı'),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Bu xana boş buraxıla bilməz';
-                    return null;
-                  },
-                ),
+                if (!_isEditMode) ...[
+                  SegmentedButton<DebtCreationType>(
+                    segments: const <ButtonSegment<DebtCreationType>>[
+                      ButtonSegment(value: DebtCreationType.personal, label: Text('Fərdi'), icon: Icon(Icons.person)),
+                      ButtonSegment(value: DebtCreationType.shared, label: Text('Qarşılıqlı'), icon: Icon(Icons.people)),
+                    ],
+                    selected: {_creationType},
+                    onSelectionChanged: (Set<DebtCreationType> newSelection) {
+                      setState(() {
+                        _creationType = newSelection.first;
+                      });
+                    },
+                    style: SegmentedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.grey.shade400,
+                      selectedForegroundColor: Colors.white,
+                      selectedBackgroundColor: const Color(0xFF6A1B9A),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                // ===== DƏYİŞİKLİK BURADADIR =====
+                // "Şəxsin adı" xanasını yalnız "Fərdi" borc növü seçiləndə göstəririk
+                if (_creationType == DebtCreationType.personal) ...[
+                  TextFormField(
+                    controller: _debtorNameController,
+                    decoration: _inputDecoration('Şəxsin adı'),
+                    validator: (value) {
+                      // Yalnız "Fərdi" borcda bu validation işləyəcək
+                      if (_creationType == DebtCreationType.personal && (value == null || value.isEmpty)) {
+                        return 'Bu xana boş buraxıla bilməz';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                _buildDebtTypeDropdown(),
                 const SizedBox(height: 16),
 
-                // === YENİ: Açıqlama TextField-i DropdownButtonFormField ilə əvəz edildi ===
-                DropdownButtonFormField<String>(
-                  value: _selectedDebtType,
-                  decoration: _inputDecoration('Borcun növü'),
-                  hint: const Text('Növünü seçin...'), // value null olanda görünəcək
-                  isExpanded: true,
-                  items: [
-                    DropdownMenuItem(value: myDebtValue, child: Text('Mənim Borcum')),
-                    DropdownMenuItem(value: debtToMeValue, child: Text('Mənə Olan Borc')),
-                  ],
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      _selectedDebtType = newValue;
-                    });
-                  },
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Zəhmət olmasa borcun növünü seçin';
-                    }
-                    return null;
-                  },
-                ),
-                // =========================================================================
+                if (_creationType == DebtCreationType.shared) ...[
+                  TextFormField(
+                    controller: _counterpartyIdController,
+                    decoration: _inputDecoration('Qarşı tərəfin Borc ID-si'),
+                    validator: (value) {
+                      if (_creationType == DebtCreationType.shared) {
+                        if (value == null || value.isEmpty) {
+                          return 'Borc ID-si boş buraxıla bilməz';
+                        }
+                        if (value == _myDebtId) {
+                          return 'Öz ID-nizi daxil edə bilməzsiniz';
+                        }
+                        if (!RegExp(r'^\d{2}-\d{2}$').hasMatch(value)) {
+                          return 'ID formatı düzgün deyil (Məs: 12-34)';
+                        }
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
-                const SizedBox(height: 16),
                 TextFormField(
                   controller: _debtAmountController,
                   decoration: _inputDecoration('Məbləğ (₼)'),
-                  keyboardType: TextInputType.number,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Bu xana boş buraxıla bilməz';
-                    final amount = double.tryParse(value);
-                    if (amount == null) return 'Zəhmət olmasa düzgün rəqəm daxil edin';
-                    if (!_isEditMode && amount <= 0) return 'Məbləğ sıfırdan böyük olmalıdır';
-                    return null;
-                  },
+                  validator: _validateAmount,
                 ),
                 const SizedBox(height: 16),
-                CheckboxListTile(
-                  title: const Text('Qaytarılma vaxtı qeyri-müəyyəndir ("Pulum olanda")',
-                      style: TextStyle(color: Color(0xFF6A1B9A))),
-                  value: _isFlexible,
-                  onChanged: (bool? value) => setState(() {
-                    _isFlexible = value ?? false;
-                    if (_isFlexible) {
-                      _selectedYear = null;
-                      _selectedMonth = null;
-                    }
-                  }),
-                  controlAffinity: ListTileControlAffinity.leading, // Checkbox-ı sola çəkir
-                  contentPadding: EdgeInsets.zero, // Əlavə boşluqları silir
-                ),
-                if (!_isFlexible)
-                  Row(
-                    children: [
-                      Expanded(
-                          child: DropdownButtonFormField<int>(
-                              value: _selectedYear,
-                              hint: const Text('İli seçin'),
-                              decoration: _inputDecoration(null),
-                              items: _years.map((y) => DropdownMenuItem<int>(value: y, child: Text(y.toString()))).toList(),
-                              onChanged: (v) => setState(() => _selectedYear = v))),
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: DropdownButtonFormField<int>(
-                              value: _selectedMonth,
-                              hint: const Text('Ayı seçin'),
-                              decoration: _inputDecoration(null),
-                              items: List.generate(12, (i) => DropdownMenuItem<int>(value: i + 1, child: Text(_months[i]))),
-                              onChanged: (v) => setState(() => _selectedMonth = v))),
-                    ],
-                  ),
+                _buildDueDateSection(),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _notesController,
@@ -245,44 +276,96 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                   maxLines: 3,
                 ),
                 const SizedBox(height: 24),
-                _isSaving
-                    ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
-                    : Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey.shade400,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Ləğv et', style: TextStyle(fontSize: 16, color: Colors.black54)),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6A1B9A),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: _saveDebt,
-                        child: Text(
-                          _isEditMode ? 'Yadda Saxla' : 'Yadda Saxla',
-                          style: const TextStyle(fontSize: 16, color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                _buildSaveButton(),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildDebtTypeDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedPersonalDebtType,
+      decoration: _inputDecoration('Borcun növü'),
+      hint: const Text('Növünü seçin...'),
+      items: const [
+        DropdownMenuItem(value: 'mənim borcum', child: Text('Mənim Borcum')),
+        DropdownMenuItem(value: 'mənə olan borclar', child: Text('Mənə Olan Borclar')),
+      ],
+      onChanged: (String? newValue) {
+        setState(() {
+          _selectedPersonalDebtType = newValue;
+        });
+      },
+      validator: (value) => value == null ? 'Zəhmət olmasa borcun növünü seçin' : null,
+    );
+  }
+
+  Widget _buildDueDateSection() {
+    return Column(
+      children: [
+        CheckboxListTile(
+          title: const Text('Qaytarılma vaxtı qeyri-müəyyəndir', style: TextStyle(color: Color(0xFF6A1B9A))),
+          value: _isFlexible,
+          onChanged: (bool? value) => setState(() {
+            _isFlexible = value ?? false;
+            if (_isFlexible) {
+              _selectedYear = null;
+              _selectedMonth = null;
+            }
+          }),
+          controlAffinity: ListTileControlAffinity.leading,
+          contentPadding: EdgeInsets.zero,
+        ),
+        if (!_isFlexible)
+          Row(
+            children: [
+              Expanded(
+                  child: DropdownButtonFormField<int>(
+                      value: _selectedYear,
+                      hint: const Text('İli seçin'),
+                      decoration: _inputDecoration(null),
+                      items: _years.map((y) => DropdownMenuItem<int>(value: y, child: Text(y.toString()))).toList(),
+                      onChanged: (v) => setState(() => _selectedYear = v))),
+              const SizedBox(width: 16),
+              Expanded(
+                  child: DropdownButtonFormField<int>(
+                      value: _selectedMonth,
+                      hint: const Text('Ayı seçin'),
+                      decoration: _inputDecoration(null),
+                      items: List.generate(12, (i) => DropdownMenuItem<int>(value: i + 1, child: Text(_months[i]))),
+                      onChanged: (v) => setState(() => _selectedMonth = v))),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSaveButton() {
+    return _isSaving
+        ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
+        : ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF6A1B9A),
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      onPressed: _saveDebt,
+      child: Text(
+        _isEditMode ? 'Dəyişiklikləri Yadda Saxla' : 'Yadda Saxla',
+        style: const TextStyle(fontSize: 16, color: Colors.white),
+      ),
+    );
+  }
+
+  String? _validateAmount(String? value) {
+    if (value == null || value.isEmpty) return 'Bu xana boş buraxıla bilməz';
+    final amount = double.tryParse(value);
+    if (amount == null) return 'Zəhmət olmasa düzgün rəqəm daxil edin';
+    if (!_isEditMode && amount <= 0) return 'Məbləğ sıfırdan böyük olmalıdır';
+    return null;
   }
 
   InputDecoration _inputDecoration(String? labelText) {
