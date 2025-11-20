@@ -346,7 +346,6 @@ class _ProposalCardState extends State<ProposalCard> {
       setState(() {
         final seconds = _timeLeft!.inSeconds - 1;
         if (seconds <= 0) {
-          // VAXT BİTDİ -> Refresh edirik ki, serverdən silindiyi görünsün
           _timer?.cancel();
           _timeLeft = Duration.zero;
           widget.onAction();
@@ -365,7 +364,6 @@ class _ProposalCardState extends State<ProposalCard> {
       await _sharedDebtService.respondToUpdateProposal(
           context, widget.proposal.id, SharedDebtResponseRequest(accepted: accepted)
       );
-      // CAVAB VERİLDİ -> Refresh edirik ki, kart dərhal silinsin
       widget.onAction();
     } catch (e) {
       if (mounted) {
@@ -377,34 +375,41 @@ class _ProposalCardState extends State<ProposalCard> {
 
   @override
   Widget build(BuildContext context) {
-    // Vaxt bitibsə, heç göstərmə
     if (_timeLeft == Duration.zero) return const SizedBox.shrink();
 
     final oldAmount = widget.proposal.originalAmount ?? 0;
     final newAmount = widget.proposal.proposedAmount ?? 0;
 
-    // Məbləğ fərqini tapırıq (məs: 30 - 20 = 10)
     final diff = (oldAmount - newAmount).abs();
-
-    // Borc azalırsa -> Ödənişdir
     final bool isPayment = newAmount < oldAmount;
 
-    // --- MƏTN GENERASİYASI (Sənin istədiyin kimi) ---
+    // --- YENİ MƏNTİQ BURADADIR ---
+    final bool isFullPayment = newAmount == 0; // Əgər yeni məbləğ 0-dırsa
+
     String titleText = "";
+
     if (widget.isIncoming) {
       if (widget.proposal.proposedAmount != null) {
-        if (isPayment) {
-          // Məsələn: "Əhməd sizə olan 30 AZN borcundan 10 AZN ödədiyini bildirir."
+        if (isFullPayment) {
+          // 1. TAM ÖDƏNİŞ (SİLİNMƏ) MESAJI
+          titleText = "${widget.proposal.proposerName} borcu TAM ödədiyini bildirir. Təsdiqləsəniz borc silinəcək.";
+        } else if (isPayment) {
+          // 2. QİSMƏN ÖDƏNİŞ MESAJI
           titleText = "${widget.proposal.proposerName} sizə olan ${oldAmount.toStringAsFixed(0)} ₼ borcundan ${diff.toStringAsFixed(0)} ₼ ödədiyini bildirir.";
         } else {
-          // Məsələn: "Əhməd borcu 10 AZN artırmaq istəyir."
+          // 3. BORC ARTIRMA MESAJI
           titleText = "${widget.proposal.proposerName} borcu ${diff.toStringAsFixed(0)} ₼ artırmaq istəyir.";
         }
       } else {
         titleText = "${widget.proposal.proposerName} borcun qeydlərini dəyişmək istəyir.";
       }
     } else {
-      titleText = "Göndərdiyiniz təklif (Cavab gözlənilir):";
+      // Göndərən tərəf üçün mesaj
+      if (isFullPayment) {
+        titleText = "Borcun tam silinməsi üçün təklif göndərmisiniz:";
+      } else {
+        titleText = "Göndərdiyiniz təklif (Cavab gözlənilir):";
+      }
     }
     // -------------------------------------------------
 
@@ -412,7 +417,8 @@ class _ProposalCardState extends State<ProposalCard> {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: isPayment ? Colors.green.shade50 : Colors.blue.shade50, // Ödənişdirsə yaşıl, artımdırsa mavi fon
+      // Silinmə təklifidirsə qırmızıya çalan rəng, ödənişdirsə yaşıl, artımdırsa mavi
+      color: isFullPayment ? Colors.orange.shade50 : (isPayment ? Colors.green.shade50 : Colors.blue.shade50),
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
@@ -426,7 +432,7 @@ class _ProposalCardState extends State<ProposalCard> {
 
             const SizedBox(height: 12),
 
-            // 2. RƏQƏMLƏR (Məs: 30 ₼ -> 20 ₼)
+            // 2. RƏQƏMLƏR
             if (widget.proposal.proposedAmount != null)
               Container(
                 padding: const EdgeInsets.all(8),
@@ -436,7 +442,13 @@ class _ProposalCardState extends State<ProposalCard> {
                   children: [
                     Text("${oldAmount.toStringAsFixed(2)} ₼", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 16)),
                     const Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Icon(Icons.arrow_forward, size: 20, color: Colors.black54)),
-                    Text("${newAmount.toStringAsFixed(2)} ₼", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: isPayment ? Colors.green : Colors.blue)),
+                    Text("${newAmount.toStringAsFixed(2)} ₼",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 22,
+                            color: isFullPayment ? Colors.red : (isPayment ? Colors.green : Colors.blue)
+                        )
+                    ),
                   ],
                 ),
               ),
@@ -468,13 +480,13 @@ class _ProposalCardState extends State<ProposalCard> {
                   Expanded(child: ElevatedButton(
                       onPressed: () => _respond(false),
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                      child: const Text("Yalandır (Rədd et)", style: TextStyle(color: Colors.white, fontSize: 13))
+                      child: const Text("Yalandır (Rədd et)", style: TextStyle(color: Colors.white, fontSize: 12))
                   )),
                   const SizedBox(width: 8),
                   Expanded(child: ElevatedButton(
                       onPressed: () => _respond(true),
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      child: const Text("Təsdiqlə", style: TextStyle(color: Colors.white))
+                      child: Text(isFullPayment ? "Silinsin" : "Təsdiqlə", style: const TextStyle(color: Colors.white))
                   )),
                 ],
               )
