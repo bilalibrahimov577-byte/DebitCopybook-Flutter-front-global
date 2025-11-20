@@ -4,7 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/shared_debt/shared_debt.dart';
 import '../models/shared_debt/shared_debt_response_request.dart';
-import '../models/shared_debt/proposal_response.dart'; // <-- YENİ MODEL
+import '../models/shared_debt/proposal_response.dart';
 import '../services/shared_debt_service.dart';
 
 class RequestsScreen extends StatefulWidget {
@@ -18,11 +18,9 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
   late TabController _tabController;
   final SharedDebtService _sharedDebtService = SharedDebtService();
 
-  // Yeni Borc Sorğuları
+  // Listlər
   List<SharedDebt> _incomingRequests = [];
   List<SharedDebt> _outgoingRequests = [];
-
-  // Dəyişiklik Təklifləri (Update Proposals)
   List<ProposalResponse> _incomingProposals = [];
   List<ProposalResponse> _outgoingProposals = [];
 
@@ -41,41 +39,37 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
     super.dispose();
   }
 
+  // Serverdən məlumatları çəkir
   Future<void> _fetchRequests() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      // 4 fərqli sorğunu paralel göndəririk
       final results = await Future.wait([
-        _sharedDebtService.getPendingRequestsForMe(context),    // 0: Gələn Borc Sorğusu
-        _sharedDebtService.getPendingRequestsISent(context),    // 1: Gedən Borc Sorğusu
-        _sharedDebtService.getIncomingProposals(context),       // 2: Gələn Dəyişiklik Təklifi
-        _sharedDebtService.getOutgoingProposals(context),       // 3: Gedən Dəyişiklik Təklifi
+        _sharedDebtService.getPendingRequestsForMe(context),
+        _sharedDebtService.getPendingRequestsISent(context),
+        _sharedDebtService.getIncomingProposals(context),
+        _sharedDebtService.getOutgoingProposals(context),
       ]);
 
       if (mounted) {
         setState(() {
           final now = DateTime.now();
 
-          // Yeni Borc Sorğularını filtirləyirik (Vaxtı keçməyənlər)
+          // 1. Yeni Borc Sorğularını filtirləyirik (Vaxtı bitməyənlər)
           _incomingRequests = (results[0] as List<SharedDebt>)
               .where((req) => req.requestExpiryTime != null && req.requestExpiryTime!.isAfter(now)).toList();
 
           _outgoingRequests = (results[1] as List<SharedDebt>)
               .where((req) => req.requestExpiryTime != null && req.requestExpiryTime!.isAfter(now)).toList();
 
-          // Dəyişiklik Təkliflərini götürürük
+          // 2. Dəyişiklik Təkliflərini alırıq
           _incomingProposals = results[2] as List<ProposalResponse>;
           _outgoingProposals = results[3] as List<ProposalResponse>;
         });
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Məlumatları yükləmək alınmadı: ${e.toString()}")),
-        );
-      }
+      debugPrint("Error fetching requests: $e");
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -134,23 +128,24 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
       child: ListView(
         padding: const EdgeInsets.only(bottom: 20),
         children: [
-          // 1. Əgər Dəyişiklik Təklifləri varsa, onları göstər
+          // --- DƏYİŞİKLİK TƏKLİFLƏRİ (ÖDƏNİŞLƏR VƏ S.) ---
           if (proposals.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Text(
-                "Dəyişiklik Təklifləri (${proposals.length})",
+                "Təkliflər (${proposals.length})",
                 style: TextStyle(color: Colors.blue[800], fontWeight: FontWeight.bold),
               ),
             ),
             ...proposals.map((prop) => ProposalCard(
+              key: ValueKey("prop_${prop.id}"),
               proposal: prop,
               isIncoming: isIncoming,
-              onAction: _fetchRequests,
+              onAction: _fetchRequests, // <--- Bu funksiya siyahını yeniləyir
             )),
           ],
 
-          // 2. Əgər Yeni Borc Sorğuları varsa, onları göstər
+          // --- YENİ BORC SORĞULARI ---
           if (debtRequests.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -160,7 +155,7 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
               ),
             ),
             ...debtRequests.map((req) => RequestCard(
-              key: ValueKey(req.id),
+              key: ValueKey("req_${req.id}"),
               debtRequest: req,
               isIncoming: isIncoming,
               onAction: _fetchRequests,
@@ -173,7 +168,7 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
 }
 
 // =========================================================
-// 1. KART: YENİ BORC SORĞUSU (Sənin köhnə kartın)
+// 1. KART: YENİ BORC SORĞUSU (RequestCard)
 // =========================================================
 class RequestCard extends StatefulWidget {
   final SharedDebt debtRequest;
@@ -195,17 +190,14 @@ class _RequestCardState extends State<RequestCard> {
   Timer? _timer;
   Duration? _timeLeft;
   bool _isProcessing = false;
-  final SharedDebtService _sharedDebtService = SharedDebtService();
   bool _responded = false;
+  final SharedDebtService _sharedDebtService = SharedDebtService();
 
   @override
   void initState() {
     super.initState();
     if (widget.debtRequest.requestExpiryTime != null) {
       _timeLeft = widget.debtRequest.requestExpiryTime!.difference(DateTime.now());
-      if (_timeLeft!.isNegative) {
-        _timeLeft = Duration.zero;
-      }
       _startTimer();
     }
   }
@@ -223,136 +215,80 @@ class _RequestCardState extends State<RequestCard> {
         return;
       }
       final now = DateTime.now();
-      final expiryTime = widget.debtRequest.requestExpiryTime!;
-      if (now.isAfter(expiryTime)) {
-        setState(() {
-          _timeLeft = Duration.zero;
-          _timer?.cancel();
-        });
+      final diff = widget.debtRequest.requestExpiryTime!.difference(now);
+
+      if (diff.isNegative) {
+        _timer?.cancel();
+        widget.onAction(); // Vaxt bitdi, siyahını yenilə (Kart silinsin)
       } else {
-        setState(() {
-          _timeLeft = expiryTime.difference(now);
-        });
+        setState(() => _timeLeft = diff);
       }
     });
   }
 
-  Future<void> _respondToRequest(bool accepted) async {
-    if (!mounted) return;
-    setState(() {
-      _isProcessing = true;
-      _responded = true;
-      _timer?.cancel();
-    });
+  Future<void> _respond(bool accepted) async {
+    setState(() { _isProcessing = true; _responded = true; });
+    _timer?.cancel();
 
     try {
-      final responseRequest = SharedDebtResponseRequest(accepted: accepted);
-      await _sharedDebtService.respondToSharedDebtRequest(context, widget.debtRequest.id, responseRequest);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(accepted ? 'Sorğu qəbul edildi!' : 'Sorğu rədd edildi!'),
-          backgroundColor: Colors.green,
-        ),
+      await _sharedDebtService.respondToSharedDebtRequest(
+          context, widget.debtRequest.id, SharedDebtResponseRequest(accepted: accepted)
       );
-
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (mounted) widget.onAction();
-      });
+      // Uğurlu olanda siyahını yenilə
+      widget.onAction();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Xəta: ${e.toString()}"), backgroundColor: Colors.red),
-        );
-        setState(() {
-          _responded = false;
-          _startTimer();
-        });
-      }
-    } finally {
-      if (mounted && _isProcessing && !_responded) {
-        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Xəta: $e")));
+        setState(() { _responded = false; _isProcessing = false; });
+        _startTimer();
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool isExpired = _timeLeft == Duration.zero;
-    final String timerText = _timeLeft != null
-        ? '${_timeLeft!.inMinutes.toString().padLeft(2, '0')}:${(_timeLeft!.inSeconds % 60).toString().padLeft(2, '0')}'
-        : '00:00';
+    if (_timeLeft != null && _timeLeft!.isNegative && !_isProcessing) return const SizedBox.shrink();
 
-    if (isExpired && !_isProcessing) return const SizedBox.shrink();
+    final timerText = _timeLeft != null
+        ? '${_timeLeft!.inMinutes}:${(_timeLeft!.inSeconds % 60).toString().padLeft(2, '0')}'
+        : '...';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.isIncoming
-                  ? "${widget.debtRequest.user.name} sizə YENİ borc sorğusu göndərib:"
-                  : "${widget.debtRequest.counterpartyUser.name} adlı istifadəçiyə borc sorğusu göndərmisiniz:",
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            Center(
-              child: Text(
-                '${widget.debtRequest.debtAmount.toStringAsFixed(2)} ₼',
-                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF6A1B9A)),
-              ),
-            ),
+            Text(widget.isIncoming
+                ? "${widget.debtRequest.user.name} sizə borc sorğusu göndərib:"
+                : "${widget.debtRequest.counterpartyUser.name} adlı şəxsə sorğu göndərmisiniz:",
+                style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 8),
+            Center(child: Text('${widget.debtRequest.debtAmount.toStringAsFixed(2)} ₼',
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF6A1B9A)))),
+
             if (widget.debtRequest.notes != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: Text("Qeyd: ${widget.debtRequest.notes}", style: const TextStyle(color: Colors.grey)),
-              ),
-            const Divider(height: 24),
+              Padding(padding: const EdgeInsets.only(top:8), child: Text("Qeyd: ${widget.debtRequest.notes}")),
+
+            const Divider(),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  _responded ? 'Cavablandı' : 'Gözləyir',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: _responded ? Colors.blue : Colors.orange),
-                ),
-                if (!_responded)
-                  Chip(
-                    avatar: const Icon(Icons.timer_outlined, size: 18),
-                    label: Text(timerText),
-                    backgroundColor: Colors.grey.shade200,
-                  ),
+                Text(_responded ? (widget.isIncoming ? "Cavablandı..." : "Gözlənilir") : "Gözlənilir",
+                    style: TextStyle(color: _responded ? Colors.blue : Colors.orange, fontWeight: FontWeight.bold)),
+                if (!_responded) Chip(label: Text(timerText), backgroundColor: Colors.grey[200]),
               ],
             ),
             if (widget.isIncoming && !_isProcessing && !_responded)
-              Padding(
-                padding: const EdgeInsets.only(top: 16.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _respondToRequest(false),
-                        icon: const Icon(Icons.close),
-                        label: const Text('Rədd Et'),
-                        style: ElevatedButton.styleFrom(foregroundColor: Colors.white, backgroundColor: Colors.red),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => _respondToRequest(true),
-                        icon: const Icon(Icons.check),
-                        label: const Text('Qəbul Et'),
-                        style: ElevatedButton.styleFrom(foregroundColor: Colors.white, backgroundColor: Colors.green),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              Row(
+                children: [
+                  Expanded(child: ElevatedButton(onPressed: () => _respond(false), style: ElevatedButton.styleFrom(backgroundColor: Colors.red), child: const Text("Rədd Et", style: TextStyle(color: Colors.white)))),
+                  const SizedBox(width: 10),
+                  Expanded(child: ElevatedButton(onPressed: () => _respond(true), style: ElevatedButton.styleFrom(backgroundColor: Colors.green), child: const Text("Qəbul Et", style: TextStyle(color: Colors.white)))),
+                ],
+              )
           ],
         ),
       ),
@@ -360,9 +296,8 @@ class _RequestCardState extends State<RequestCard> {
   }
 }
 
-
 // =========================================================
-// 2. YENİ KART: DƏYİŞİKLİK TƏKLİFİ (UPDATE PROPOSAL)
+// 2. KART: DƏYİŞİKLİK TƏKLİFİ (ProposalCard)
 // =========================================================
 class ProposalCard extends StatefulWidget {
   final ProposalResponse proposal;
@@ -381,126 +316,168 @@ class ProposalCard extends StatefulWidget {
 }
 
 class _ProposalCardState extends State<ProposalCard> {
+  Timer? _timer;
+  Duration? _timeLeft;
   bool _isProcessing = false;
+  bool _responded = false;
   final SharedDebtService _sharedDebtService = SharedDebtService();
 
-  Future<void> _respondToProposal(bool accepted) async {
-    setState(() => _isProcessing = true);
+  @override
+  void initState() {
+    super.initState();
+    // 120 saniyə (2 dəqiqə) taymer başlayır
+    _timeLeft = const Duration(minutes: 2);
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _responded) {
+        _timer?.cancel();
+        return;
+      }
+
+      setState(() {
+        final seconds = _timeLeft!.inSeconds - 1;
+        if (seconds <= 0) {
+          // VAXT BİTDİ -> Refresh edirik ki, serverdən silindiyi görünsün
+          _timer?.cancel();
+          _timeLeft = Duration.zero;
+          widget.onAction();
+        } else {
+          _timeLeft = Duration(seconds: seconds);
+        }
+      });
+    });
+  }
+
+  Future<void> _respond(bool accepted) async {
+    setState(() { _isProcessing = true; _responded = true; });
+    _timer?.cancel();
+
     try {
-      final response = SharedDebtResponseRequest(accepted: accepted);
-      await _sharedDebtService.respondToUpdateProposal(context, widget.proposal.id, response);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(accepted ? "Dəyişiklik qəbul edildi!" : "Dəyişiklik rədd edildi."),
-          backgroundColor: accepted ? Colors.green : Colors.red,
-        ),
+      await _sharedDebtService.respondToUpdateProposal(
+          context, widget.proposal.id, SharedDebtResponseRequest(accepted: accepted)
       );
-
-      widget.onAction(); // Siyahını yenilə
+      // CAVAB VERİLDİ -> Refresh edirik ki, kart dərhal silinsin
+      widget.onAction();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Xəta: $e")));
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Xəta: $e")));
+        setState(() { _isProcessing = false; _responded = false; });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Vaxt bitibsə, heç göstərmə
+    if (_timeLeft == Duration.zero) return const SizedBox.shrink();
+
+    final oldAmount = widget.proposal.originalAmount ?? 0;
+    final newAmount = widget.proposal.proposedAmount ?? 0;
+
+    // Məbləğ fərqini tapırıq (məs: 30 - 20 = 10)
+    final diff = (oldAmount - newAmount).abs();
+
+    // Borc azalırsa -> Ödənişdir
+    final bool isPayment = newAmount < oldAmount;
+
+    // --- MƏTN GENERASİYASI (Sənin istədiyin kimi) ---
+    String titleText = "";
+    if (widget.isIncoming) {
+      if (widget.proposal.proposedAmount != null) {
+        if (isPayment) {
+          // Məsələn: "Əhməd sizə olan 30 AZN borcundan 10 AZN ödədiyini bildirir."
+          titleText = "${widget.proposal.proposerName} sizə olan ${oldAmount.toStringAsFixed(0)} ₼ borcundan ${diff.toStringAsFixed(0)} ₼ ödədiyini bildirir.";
+        } else {
+          // Məsələn: "Əhməd borcu 10 AZN artırmaq istəyir."
+          titleText = "${widget.proposal.proposerName} borcu ${diff.toStringAsFixed(0)} ₼ artırmaq istəyir.";
+        }
+      } else {
+        titleText = "${widget.proposal.proposerName} borcun qeydlərini dəyişmək istəyir.";
+      }
+    } else {
+      titleText = "Göndərdiyiniz təklif (Cavab gözlənilir):";
+    }
+    // -------------------------------------------------
+
+    final timerText = '${_timeLeft!.inMinutes}:${(_timeLeft!.inSeconds % 60).toString().padLeft(2, '0')}';
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: isPayment ? Colors.green.shade50 : Colors.blue.shade50, // Ödənişdirsə yaşıl, artımdırsa mavi fon
       elevation: 4,
-      color: Colors.blue.shade50, // Dəyişiklik təklifləri bir az fərqli rəngdə olsun
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.blue.shade200)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.edit_note, color: Colors.blue[800]),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.isIncoming
-                        ? "${widget.proposal.proposerName} borcda DƏYİŞİKLİK istəyir:"
-                        : "Dəyişiklik təklifi göndərmisiniz:",
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blue[900]),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 15),
+            // 1. MƏTN HİSSƏSİ
+            Text(titleText,
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
 
-            // Məbləğ dəyişikliyi varsa göstər
+            const SizedBox(height: 12),
+
+            // 2. RƏQƏMLƏR (Məs: 30 ₼ -> 20 ₼)
             if (widget.proposal.proposedAmount != null)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "${widget.proposal.originalAmount} ₼",
-                    style: const TextStyle(fontSize: 18, color: Colors.grey, decoration: TextDecoration.lineThrough),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Icon(Icons.arrow_forward, color: Colors.blue),
-                  ),
-                  Text(
-                    "${widget.proposal.proposedAmount} ₼",
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue[800]),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text("${oldAmount.toStringAsFixed(2)} ₼", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 16)),
+                    const Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Icon(Icons.arrow_forward, size: 20, color: Colors.black54)),
+                    Text("${newAmount.toStringAsFixed(2)} ₼", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22, color: isPayment ? Colors.green : Colors.blue)),
+                  ],
+                ),
               ),
 
-            // Qeyd dəyişikliyi varsa göstər
+            // 3. YENİ QEYD VARSA
             if (widget.proposal.proposedNotes != null)
               Container(
-                margin: const EdgeInsets.only(top: 10),
+                margin: const EdgeInsets.only(top:10),
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Yeni Qeyd Təklifi:", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    Text(widget.proposal.proposedNotes!, style: const TextStyle(fontSize: 14)),
-                  ],
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                child: Text("Yeni Qeyd: ${widget.proposal.proposedNotes}"),
               ),
 
-            // Düymələr (Yalnız gələn sorğular üçün)
-            if (widget.isIncoming && !_isProcessing)
-              Padding(
-                padding: const EdgeInsets.only(top: 16.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _respondToProposal(false),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-                        child: const Text("Rədd et"),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _respondToProposal(true),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
-                        child: const Text("Təsdiqlə"),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            const Divider(),
 
-            if(_isProcessing)
-              const Center(child: Padding(
-                padding: EdgeInsets.all(8.0),
-                child: CircularProgressIndicator(),
-              ))
+            // 4. TAYMER
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("Vaxt bitir:", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                Chip(avatar: const Icon(Icons.timer, size:16), label: Text(timerText), backgroundColor: Colors.white),
+              ],
+            ),
+
+            // 5. DÜYMƏLƏR (Yalnız Gələnlər üçün)
+            if (widget.isIncoming && !_isProcessing && !_responded)
+              Row(
+                children: [
+                  Expanded(child: ElevatedButton(
+                      onPressed: () => _respond(false),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                      child: const Text("Yalandır (Rədd et)", style: TextStyle(color: Colors.white, fontSize: 13))
+                  )),
+                  const SizedBox(width: 8),
+                  Expanded(child: ElevatedButton(
+                      onPressed: () => _respond(true),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      child: const Text("Təsdiqlə", style: TextStyle(color: Colors.white))
+                  )),
+                ],
+              )
           ],
         ),
       ),
