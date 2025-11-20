@@ -3,7 +3,6 @@
 import 'dart:convert';
 import 'user_dto.dart';
 
-// JSON siyahısını SharedDebt siyahısına çevirən funksiya
 List<SharedDebt> sharedDebtListFromJson(String str) =>
     List<SharedDebt>.from(json.decode(str).map((x) => SharedDebt.fromJson(x)));
 
@@ -13,10 +12,17 @@ class SharedDebt {
   final String debtorName;
   final String? description;
   final String? notes;
-  final String status; // PENDING_APPROVAL, CONFIRMED
-  final DateTime? requestExpiryTime; // Sorğunun bitmə vaxtı
-  final UserDto user; // Borcun sahibi (sorğunu göndərən)
-  final UserDto counterpartyUser; // Qarşı tərəf
+  final String status;
+  final DateTime? requestExpiryTime;
+  final UserDto user;
+  final UserDto counterpartyUser;
+
+  // --- YENİ ƏLAVƏLƏR (Backend göndərir, biz tutmalıyıq) ---
+  final String? createdAt; // Backend bunu String göndərir (məs: "2025-11-19")
+  final int? dueYear;
+  final int? dueMonth;
+  final bool isFlexibleDueDate;
+  // --------------------------------------------------------
 
   SharedDebt({
     required this.id,
@@ -28,6 +34,12 @@ class SharedDebt {
     this.requestExpiryTime,
     required this.user,
     required this.counterpartyUser,
+
+    // Constructor-a əlavə edirik
+    this.createdAt,
+    this.dueYear,
+    this.dueMonth,
+    required this.isFlexibleDueDate,
   });
 
   factory SharedDebt.fromJson(Map<String, dynamic> json) {
@@ -38,12 +50,18 @@ class SharedDebt {
       description: json['description'],
       notes: json['notes'],
       status: json['status'],
-      // Tarix null gələ bilər, ona görə yoxlayırıq
       requestExpiryTime: json['requestExpiryTime'] != null
           ? DateTime.parse(json['requestExpiryTime'])
           : null,
       user: UserDto.fromJson(json['user']),
       counterpartyUser: UserDto.fromJson(json['counterpartyUser']),
+
+      // JSON-dan oxuyuruq
+      createdAt: json['createdAt'],
+      dueYear: json['dueYear'],
+      dueMonth: json['dueMonth'],
+      // isFlexibleDueDate null gələrsə false qəbul edirik
+      isFlexibleDueDate: json['isFlexibleDueDate'] ?? false,
     );
   }
 }
