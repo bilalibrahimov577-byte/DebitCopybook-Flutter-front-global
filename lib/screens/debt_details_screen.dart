@@ -3,6 +3,7 @@
 import 'package:borc_defteri/models/shared_debt/update_proposal_request.dart';
 import 'package:borc_defteri/models/unified_debt_item.dart';
 import 'package:borc_defteri/services/shared_debt_service.dart';
+import 'package:borc_defteri/services/auth_service.dart'; // AuthService əlavə olundu
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -27,9 +28,13 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
   List<DebtHistory> _history = [];
   bool _isLoading = true;
   bool _isProcessing = false;
+
   final DebtService _debtService = DebtService();
   final SharedDebtService _sharedDebtService = SharedDebtService();
+  final AuthService _authService = AuthService(); // Auth Service əlavə etdik
+
   bool _needsRefreshOnExit = false;
+  String? _currentUserId; // Öz ID-mizi saxlamaq üçün
 
   @override
   void initState() {
@@ -42,14 +47,17 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
+      // Öz ID-mizi götürürük
+      _currentUserId = await _authService.getUserUniqueId();
+
       final debtId = _currentItem.type == DebtType.personal
           ? (_currentItem.data as Debt).id
           : (_currentItem.data as SharedDebt).id;
+
       _history = await _debtService.getDebtHistory(context, debtId);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Məlumatlar yüklənə bilmədi: $e')));
+        debugPrint("Tarixçə xətası: $e");
       }
     } finally {
       if (mounted) {
@@ -327,16 +335,32 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     final isPersonal = _currentItem.type == DebtType.personal;
     final debtData = _currentItem.data;
 
-    final String debtorName;
-    final double debtAmount;
+    String displayName = "Yüklənir...";
+    double debtAmount = 0.0;
+
     if (isPersonal) {
       final debt = debtData as Debt;
-      debtorName = debt.debtorName;
+      displayName = debt.debtorName;
       debtAmount = debt.debtAmount;
     } else {
       final debt = debtData as SharedDebt;
-      debtorName = debt.debtorName;
       debtAmount = debt.debtAmount;
+
+      // --- AD MƏNTİQİNİN DÜZƏLDİLMƏSİ ---
+      if (_currentUserId != null) {
+        // Əgər mən borcu yaradanamsa -> Qarşı tərəfin adını göstər
+        if (debt.user.id.toString() == _currentUserId) {
+          displayName = debt.counterpartyUser.name;
+        }
+        // Əgər borc mənə gəlibsə -> Yaradanın adını göstər
+        else {
+          displayName = debt.user.name;
+        }
+      } else {
+        // ID hələ yüklənməyibsə (nadir hal), default olaraq counterparty-ni göstər
+        displayName = debt.counterpartyUser.name;
+      }
+      // ----------------------------------
     }
 
     return WillPopScope(
@@ -347,7 +371,7 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF0F2F5),
         appBar: AppBar(
-          title: Text(debtorName, style: const TextStyle(color: Colors.white)),
+          title: Text(displayName, style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF6A1B9A),
           leading: BackButton(
               color: Colors.white,
@@ -364,7 +388,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
                         strokeWidth: 3,
                       ))),
             if (!_isLoading && !_isProcessing) ...[
-              // "Redaktə et" düyməsini yalnız `isPersonal` true olanda göstəririk
               if (isPersonal)
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.white),
@@ -383,8 +406,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
                         });
                   },
                 ),
-
-              // Silmə düyməsi hər zaman görünür, amma içindəki məntiq fərqlidir
               IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
                 tooltip: 'Sil',
@@ -403,11 +424,9 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
             ? const Center(
             child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
             : Column(children: [
-          _buildHeader(debtAmount, isPersonal, debtData),
+          _buildHeader(debtAmount, isPersonal, debtData, displayName), // DisplayName-i bura da ötürürük
 
-          // +++ YENİ ƏLAVƏ EDİLƏN HİSSƏ +++
           _buildInfoSection(isPersonal, debtData),
-          // +++++++++++++++++++++++++++++++
 
           _buildActionButtons(isPersonal),
           const Padding(
@@ -426,39 +445,32 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     );
   }
 
-  // --- BU FUNKSİYA ƏVVƏL YOX İDİ, İNDİ ƏLAVƏ OLUNDU ---
   Widget _buildInfoSection(bool isPersonal, dynamic debtData) {
     String? notes;
     String? createdAtStr;
-    String dueDateString = "Müddətsiz";
+    String dueDateString = "Müddətsiz / İmkan olanda";
 
     if (isPersonal) {
       final debt = debtData as Debt;
       notes = debt.notes;
 
-      // --- DÜZƏLİŞ BURADADIR ---
-      // createdAt sahəsi həm String, həm DateTime ola bilər deyə yoxlayırıq
       if (debt.createdAt is DateTime) {
         createdAtStr = DateFormat('dd.MM.yyyy').format(debt.createdAt as DateTime);
       } else if (debt.createdAt is String) {
-        // Əgər artıq String-dirsə, olduğu kimi götürürük
         createdAtStr = debt.createdAt as String;
       } else {
         createdAtStr = null;
       }
-      // --------------------------
 
-      if (!debt.isFlexibleDueDate) {
+      if (!debt.isFlexibleDueDate && debt.dueYear != null && debt.dueMonth != null) {
         dueDateString = "${debt.dueMonth}/${debt.dueYear}";
       }
     } else {
       final debt = debtData as SharedDebt;
       notes = debt.notes;
-
-      // SharedDebt-də createdAt String gəlir
       createdAtStr = debt.createdAt;
 
-      if (!debt.isFlexibleDueDate) {
+      if (!debt.isFlexibleDueDate && debt.dueYear != null && debt.dueMonth != null) {
         dueDateString = "${debt.dueMonth}/${debt.dueYear}";
       }
     }
@@ -473,7 +485,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
           padding: const EdgeInsets.all(12.0),
           child: Column(
             children: [
-              // Yaradılma Tarixi
               if (createdAtStr != null)
                 ListTile(
                   dense: true,
@@ -483,7 +494,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
                   subtitle: Text(createdAtStr),
                 ),
 
-              // Son Ödəniş Tarixi
               ListTile(
                 dense: true,
                 leading: const Icon(Icons.event_busy, color: Colors.redAccent),
@@ -492,7 +502,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
                 subtitle: Text(dueDateString),
               ),
 
-              // Qeyd (Varsa)
               if (notes != null && notes.isNotEmpty) ...[
                 const Divider(height: 1),
                 ListTile(
@@ -509,9 +518,9 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       ),
     );
   }
-  // ----------------------------------------------------
 
-  Widget _buildHeader(double amount, bool isPersonal, dynamic debtData) {
+  // Header-ə displayName parametrini də əlavə etdim ki, kartın içində də düzgün ad görünsün
+  Widget _buildHeader(double amount, bool isPersonal, dynamic debtData, String displayName) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Card(
@@ -536,7 +545,8 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
               if (!isPersonal) ...[
                 const SizedBox(height: 10),
                 Text(
-                    "Qarşı tərəf: ${(debtData as SharedDebt).counterpartyUser.name}",
+                  // Artıq hesablanmış düzgün adı göstəririk
+                    "Tərəf müqabili: $displayName",
                     style: const TextStyle(color: Colors.white, fontSize: 14)),
               ]
             ],

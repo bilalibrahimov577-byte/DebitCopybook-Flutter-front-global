@@ -62,6 +62,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     _fetchMyDebtId();
 
     if (_isEditMode) {
+      // Redaktə zamanı həmişə personal kimi açılır (indiki məntiqə görə)
       _creationType = DebtCreationType.personal;
       final debt = widget.existingDebt!;
 
@@ -88,10 +89,13 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     }
   }
 
+  // --- ƏSAS DÜZƏLİŞ BURADADIR ---
   Future<void> _saveDebt() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+
+    // Tarix yoxlaması
     if (!_isFlexible && (_selectedYear == null || _selectedMonth == null)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Zəhmət olmasa, qaytarılma tarixini tam seçin.')));
@@ -101,9 +105,12 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // Burada IF-ELSE işlədiyi üçün EYNİ ANDA yalnız biri işləyəcək.
+      // Bu da "2 borc yaranma" problemini həll edir.
       if (_creationType == DebtCreationType.personal) {
         await _savePersonalDebt();
       } else {
+        // Shared seçilibsə, personal funksiyası qətiyyən çağırılmır
         await _saveSharedDebt();
       }
     } catch (e) {
@@ -138,6 +145,9 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     }
 
     if (mounted && (result['success'] ?? false)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Fərdi borc uğurla yadda saxlanıldı!"), backgroundColor: Colors.green),
+      );
       Navigator.of(context).pop(true);
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -147,12 +157,15 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
   }
 
   Future<void> _saveSharedDebt() async {
-    // ===== DƏYİŞİKLİK BURADADIR =====
-    // `debtorName` üçün boş bir dəyər göndəririk, çünki backend onu onsuz da özü təyin edəcək.
-    // `_debtorNameController.text` artıq burada istifadə olunmur.
+    // Qarşılıqlı borc üçün ID mütləq olmalıdır
+    if (_counterpartyIdController.text.isEmpty) {
+      throw Exception("Qarşı tərəfin ID-si daxil edilməyib");
+    }
+
     final request = SharedDebtRequest(
       counterpartyDebtId: _counterpartyIdController.text,
-      debtorName: "", // Backend bu sahəni onsuz da qarşı tərəfin adına görə dolduracaq
+      // Backend qarşı tərəfin adını özü tapır, ona görə bura boş da gedə bilər
+      debtorName: "",
       debtAmount: double.parse(_debtAmountController.text),
       description: _selectedPersonalDebtType,
       notes: _notesController.text.isNotEmpty ? _notesController.text : null,
@@ -161,6 +174,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
       dueMonth: _isFlexible ? null : _selectedMonth,
     );
 
+    // Burada yalnız SharedDebt servisi çağırılır
     await _sharedDebtService.createSharedDebtRequest(context, request);
 
     if (mounted) {
@@ -196,6 +210,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
             key: _formKey,
             child: ListView(
               children: [
+                // Redaktə rejimində növü dəyişməyə icazə vermirik
                 if (!_isEditMode) ...[
                   SegmentedButton<DebtCreationType>(
                     segments: const <ButtonSegment<DebtCreationType>>[
@@ -218,14 +233,12 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                   const SizedBox(height: 24),
                 ],
 
-                // ===== DƏYİŞİKLİK BURADADIR =====
                 // "Şəxsin adı" xanasını yalnız "Fərdi" borc növü seçiləndə göstəririk
                 if (_creationType == DebtCreationType.personal) ...[
                   TextFormField(
                     controller: _debtorNameController,
                     decoration: _inputDecoration('Şəxsin adı'),
                     validator: (value) {
-                      // Yalnız "Fərdi" borcda bu validation işləyəcək
                       if (_creationType == DebtCreationType.personal && (value == null || value.isEmpty)) {
                         return 'Bu xana boş buraxıla bilməz';
                       }
@@ -238,6 +251,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                 _buildDebtTypeDropdown(),
                 const SizedBox(height: 16),
 
+                // ID sahəsi yalnız Shared olanda görünür
                 if (_creationType == DebtCreationType.shared) ...[
                   TextFormField(
                     controller: _counterpartyIdController,
@@ -250,9 +264,12 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                         if (value == _myDebtId) {
                           return 'Öz ID-nizi daxil edə bilməzsiniz';
                         }
+                        // ID formatı yoxlanışı (lazımdırsa aktivləşdir)
+                        /*
                         if (!RegExp(r'^\d{2}-\d{2}$').hasMatch(value)) {
                           return 'ID formatı düzgün deyil (Məs: 12-34)';
                         }
+                        */
                       }
                       return null;
                     },

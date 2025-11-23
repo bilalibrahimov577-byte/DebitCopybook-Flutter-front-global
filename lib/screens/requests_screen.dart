@@ -17,6 +17,7 @@ class RequestsScreen extends StatefulWidget {
 class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final SharedDebtService _sharedDebtService = SharedDebtService();
+  Timer? _autoRefreshTimer; // Avtomatik yeniləmə üçün
 
   // Listlər
   List<SharedDebt> _incomingRequests = [];
@@ -31,18 +32,27 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _fetchRequests();
+
+    // Hər 5 saniyədən bir məlumatları yeniləyir ki, qarşı tərəf qəbul edibsə, bizdə də getsin
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (mounted) {
+        _fetchRequests(isBackground: true);
+      }
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _autoRefreshTimer?.cancel();
     super.dispose();
   }
 
   // Serverdən məlumatları çəkir
-  Future<void> _fetchRequests() async {
+  // isBackground: true olarsa, loading spinner göstərmir (səssiz yeniləmə)
+  Future<void> _fetchRequests({bool isBackground = false}) async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    if (!isBackground) setState(() => _isLoading = true);
 
     try {
       final results = await Future.wait([
@@ -63,15 +73,19 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
           _outgoingRequests = (results[1] as List<SharedDebt>)
               .where((req) => req.requestExpiryTime != null && req.requestExpiryTime!.isAfter(now)).toList();
 
-          // 2. Dəyişiklik Təkliflərini alırıq
-          _incomingProposals = results[2] as List<ProposalResponse>;
-          _outgoingProposals = results[3] as List<ProposalResponse>;
+          // 2. Dəyişiklik Təkliflərini filtirləyirik (Vaxtı bitməyənlər)
+          // Əgər backend expiryTime göndərmirsə, hamısını göstəririk (amma biz artıq əlavə etdik)
+          _incomingProposals = (results[2] as List<ProposalResponse>)
+              .where((prop) => prop.requestExpiryTime == null || prop.requestExpiryTime!.isAfter(now)).toList();
+
+          _outgoingProposals = (results[3] as List<ProposalResponse>)
+              .where((prop) => prop.requestExpiryTime == null || prop.requestExpiryTime!.isAfter(now)).toList();
         });
       }
     } catch (e) {
       debugPrint("Error fetching requests: $e");
     } finally {
-      if (mounted) {
+      if (mounted && !isBackground) {
         setState(() => _isLoading = false);
       }
     }
@@ -124,11 +138,12 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
     }
 
     return RefreshIndicator(
-      onRefresh: _fetchRequests,
+      onRefresh: () => _fetchRequests(),
       child: ListView(
         padding: const EdgeInsets.only(bottom: 20),
+        physics: const AlwaysScrollableScrollPhysics(), // Refresh işləməsi üçün
         children: [
-          // --- DƏYİŞİKLİK TƏKLİFLƏRİ (ÖDƏNİŞLƏR VƏ S.) ---
+          // --- DƏYİŞİKLİK TƏKLİFLƏRİ ---
           if (proposals.isNotEmpty) ...[
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -141,7 +156,7 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
               key: ValueKey("prop_${prop.id}"),
               proposal: prop,
               isIncoming: isIncoming,
-              onAction: _fetchRequests, // <--- Bu funksiya siyahını yeniləyir
+              onAction: () => _fetchRequests(isBackground: true),
             )),
           ],
 
@@ -158,7 +173,7 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
               key: ValueKey("req_${req.id}"),
               debtRequest: req,
               isIncoming: isIncoming,
-              onAction: _fetchRequests,
+              onAction: () => _fetchRequests(isBackground: true),
             )),
           ],
         ],
@@ -196,9 +211,16 @@ class _RequestCardState extends State<RequestCard> {
   @override
   void initState() {
     super.initState();
+    _calculateTimeLeft();
+    _startTimer();
+  }
+
+  void _calculateTimeLeft() {
     if (widget.debtRequest.requestExpiryTime != null) {
-      _timeLeft = widget.debtRequest.requestExpiryTime!.difference(DateTime.now());
-      _startTimer();
+      final diff = widget.debtRequest.requestExpiryTime!.difference(DateTime.now());
+      setState(() {
+        _timeLeft = diff.isNegative ? Duration.zero : diff;
+      });
     }
   }
 
@@ -215,13 +237,16 @@ class _RequestCardState extends State<RequestCard> {
         return;
       }
       final now = DateTime.now();
-      final diff = widget.debtRequest.requestExpiryTime!.difference(now);
 
-      if (diff.isNegative) {
-        _timer?.cancel();
-        widget.onAction(); // Vaxt bitdi, siyahını yenilə (Kart silinsin)
-      } else {
-        setState(() => _timeLeft = diff);
+      if (widget.debtRequest.requestExpiryTime != null) {
+        final diff = widget.debtRequest.requestExpiryTime!.difference(now);
+
+        if (diff.isNegative) {
+          _timer?.cancel();
+          widget.onAction(); // Vaxt bitdi -> Yenilə
+        } else {
+          setState(() => _timeLeft = diff);
+        }
       }
     });
   }
@@ -234,7 +259,6 @@ class _RequestCardState extends State<RequestCard> {
       await _sharedDebtService.respondToSharedDebtRequest(
           context, widget.debtRequest.id, SharedDebtResponseRequest(accepted: accepted)
       );
-      // Uğurlu olanda siyahını yenilə
       widget.onAction();
     } catch (e) {
       if (mounted) {
@@ -247,7 +271,7 @@ class _RequestCardState extends State<RequestCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (_timeLeft != null && _timeLeft!.isNegative && !_isProcessing) return const SizedBox.shrink();
+    if (_timeLeft != null && _timeLeft == Duration.zero && !_isProcessing) return const SizedBox.shrink();
 
     final timerText = _timeLeft != null
         ? '${_timeLeft!.inMinutes}:${(_timeLeft!.inSeconds % 60).toString().padLeft(2, '0')}'
@@ -325,9 +349,23 @@ class _ProposalCardState extends State<ProposalCard> {
   @override
   void initState() {
     super.initState();
-    // 120 saniyə (2 dəqiqə) taymer başlayır
-    _timeLeft = const Duration(minutes: 2);
+    _calculateTimeLeft();
     _startTimer();
+  }
+
+  // --- VACİB DÜZƏLİŞ: VAXTI DÜZGÜN HESABLAMAQ ---
+  void _calculateTimeLeft() {
+    // Əgər backend ExpiryTime göndərirsə, ondan istifadə edirik
+    if (widget.proposal.requestExpiryTime != null) {
+      final diff = widget.proposal.requestExpiryTime!.difference(DateTime.now());
+      setState(() {
+        _timeLeft = diff.isNegative ? Duration.zero : diff;
+      });
+    } else {
+      // Əgər köhnə backend versiyasıdırsa, default 120 saniyə ver (amma bu ideal deyil)
+      // Serveri yeniləyəndən sonra bu else bloku işləməyəcək
+      _timeLeft = const Duration(minutes: 2);
+    }
   }
 
   @override
@@ -343,16 +381,31 @@ class _ProposalCardState extends State<ProposalCard> {
         return;
       }
 
-      setState(() {
-        final seconds = _timeLeft!.inSeconds - 1;
-        if (seconds <= 0) {
+      // Əsas məntiq: System vaxtına görə fərqi tapırıq
+      if (widget.proposal.requestExpiryTime != null) {
+        final now = DateTime.now();
+        final diff = widget.proposal.requestExpiryTime!.difference(now);
+
+        if (diff.isNegative) {
           _timer?.cancel();
-          _timeLeft = Duration.zero;
+          setState(() => _timeLeft = Duration.zero);
           widget.onAction();
         } else {
-          _timeLeft = Duration(seconds: seconds);
+          setState(() => _timeLeft = diff);
         }
-      });
+      } else {
+        // Fallback: Sadə geri sayım (yalnız backend yenilənməyibsə işləyir)
+        if (_timeLeft != null) {
+          final seconds = _timeLeft!.inSeconds - 1;
+          if (seconds <= 0) {
+            _timer?.cancel();
+            setState(() => _timeLeft = Duration.zero);
+            widget.onAction();
+          } else {
+            setState(() => _timeLeft = Duration(seconds: seconds));
+          }
+        }
+      }
     });
   }
 
@@ -375,7 +428,7 @@ class _ProposalCardState extends State<ProposalCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (_timeLeft == Duration.zero) return const SizedBox.shrink();
+    if (_timeLeft != null && _timeLeft == Duration.zero) return const SizedBox.shrink();
 
     final oldAmount = widget.proposal.originalAmount ?? 0;
     final newAmount = widget.proposal.proposedAmount ?? 0;
@@ -383,41 +436,36 @@ class _ProposalCardState extends State<ProposalCard> {
     final diff = (oldAmount - newAmount).abs();
     final bool isPayment = newAmount < oldAmount;
 
-    // --- YENİ MƏNTİQ BURADADIR ---
-    final bool isFullPayment = newAmount == 0; // Əgər yeni məbləğ 0-dırsa
+    final bool isFullPayment = newAmount == 0;
 
     String titleText = "";
 
     if (widget.isIncoming) {
       if (widget.proposal.proposedAmount != null) {
         if (isFullPayment) {
-          // 1. TAM ÖDƏNİŞ (SİLİNMƏ) MESAJI
           titleText = "${widget.proposal.proposerName} borcu TAM ödədiyini bildirir. Təsdiqləsəniz borc silinəcək.";
         } else if (isPayment) {
-          // 2. QİSMƏN ÖDƏNİŞ MESAJI
           titleText = "${widget.proposal.proposerName} sizə olan ${oldAmount.toStringAsFixed(0)} ₼ borcundan ${diff.toStringAsFixed(0)} ₼ ödədiyini bildirir.";
         } else {
-          // 3. BORC ARTIRMA MESAJI
           titleText = "${widget.proposal.proposerName} borcu ${diff.toStringAsFixed(0)} ₼ artırmaq istəyir.";
         }
       } else {
         titleText = "${widget.proposal.proposerName} borcun qeydlərini dəyişmək istəyir.";
       }
     } else {
-      // Göndərən tərəf üçün mesaj
       if (isFullPayment) {
         titleText = "Borcun tam silinməsi üçün təklif göndərmisiniz:";
       } else {
         titleText = "Göndərdiyiniz təklif (Cavab gözlənilir):";
       }
     }
-    // -------------------------------------------------
 
-    final timerText = '${_timeLeft!.inMinutes}:${(_timeLeft!.inSeconds % 60).toString().padLeft(2, '0')}';
+    final timerText = _timeLeft != null
+        ? '${_timeLeft!.inMinutes}:${(_timeLeft!.inSeconds % 60).toString().padLeft(2, '0')}'
+        : '...';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      // Silinmə təklifidirsə qırmızıya çalan rəng, ödənişdirsə yaşıl, artımdırsa mavi
       color: isFullPayment ? Colors.orange.shade50 : (isPayment ? Colors.green.shade50 : Colors.blue.shade50),
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -426,13 +474,11 @@ class _ProposalCardState extends State<ProposalCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. MƏTN HİSSƏSİ
             Text(titleText,
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
 
             const SizedBox(height: 12),
 
-            // 2. RƏQƏMLƏR
             if (widget.proposal.proposedAmount != null)
               Container(
                 padding: const EdgeInsets.all(8),
@@ -453,7 +499,6 @@ class _ProposalCardState extends State<ProposalCard> {
                 ),
               ),
 
-            // 3. YENİ QEYD VARSA
             if (widget.proposal.proposedNotes != null)
               Container(
                 margin: const EdgeInsets.only(top:10),
@@ -464,7 +509,6 @@ class _ProposalCardState extends State<ProposalCard> {
 
             const Divider(),
 
-            // 4. TAYMER
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -473,7 +517,6 @@ class _ProposalCardState extends State<ProposalCard> {
               ],
             ),
 
-            // 5. DÜYMƏLƏR (Yalnız Gələnlər üçün)
             if (widget.isIncoming && !_isProcessing && !_responded)
               Row(
                 children: [

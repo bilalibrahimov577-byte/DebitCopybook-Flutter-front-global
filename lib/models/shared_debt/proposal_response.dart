@@ -6,6 +6,7 @@ class ProposalResponse {
   final double? proposedAmount;
   final String? originalNotes;
   final String? proposedNotes;
+  final DateTime? requestExpiryTime;
 
   ProposalResponse({
     required this.id,
@@ -15,6 +16,7 @@ class ProposalResponse {
     this.proposedAmount,
     this.originalNotes,
     this.proposedNotes,
+    this.requestExpiryTime,
   });
 
   factory ProposalResponse.fromJson(Map<String, dynamic> json) {
@@ -30,6 +32,10 @@ class ProposalResponse {
           : null,
       originalNotes: json['originalNotes'],
       proposedNotes: json['proposedNotes'],
+
+      requestExpiryTime: json['requestExpiryTime'] != null
+          ? DateTime.parse(json['requestExpiryTime'])
+          : null,
     );
   }
 }
