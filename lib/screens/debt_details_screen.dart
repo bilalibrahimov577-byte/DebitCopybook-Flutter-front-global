@@ -3,7 +3,7 @@
 import 'package:borc_defteri/models/shared_debt/update_proposal_request.dart';
 import 'package:borc_defteri/models/unified_debt_item.dart';
 import 'package:borc_defteri/services/shared_debt_service.dart';
-import 'package:borc_defteri/services/auth_service.dart'; // AuthService əlavə olundu
+import 'package:borc_defteri/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -31,10 +31,10 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
 
   final DebtService _debtService = DebtService();
   final SharedDebtService _sharedDebtService = SharedDebtService();
-  final AuthService _authService = AuthService(); // Auth Service əlavə etdik
+  final AuthService _authService = AuthService();
 
   bool _needsRefreshOnExit = false;
-  String? _currentUserId; // Öz ID-mizi saxlamaq üçün
+  String? _currentUserId;
 
   @override
   void initState() {
@@ -47,7 +47,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      // Öz ID-mizi götürürük
       _currentUserId = await _authService.getUserUniqueId();
 
       final debtId = _currentItem.type == DebtType.personal
@@ -79,26 +78,33 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
         title: Text(isPersonal
             ? (isPayment ? 'Ödəniş Et' : 'Məbləği Artır')
             : (isPayment ? 'Ödəniş Təklif Et' : 'Məbləği Artırmaq üçün Təklif')),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))
-            ],
-            decoration: const InputDecoration(
-                labelText: 'Məbləğ (₼)', border: OutlineInputBorder()),
-            validator: (value) {
-              if (value == null || value.isEmpty) return 'Məbləğ boş ola bilməz';
-              final amount = double.tryParse(value);
-              if (amount == null || amount <= 0)
-                return 'Məbləğ 0-dan böyük olmalıdır';
-              if (isPersonal && isPayment && amount > currentAmount)
-                return 'Ödəniş borcdan çox ola bilməz';
-              return null;
-            },
+        content: SingleChildScrollView(
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: controller,
+                  autofocus: true,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))
+                  ],
+                  decoration: const InputDecoration(
+                      labelText: 'Məbləğ (₼)', border: OutlineInputBorder()),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) return 'Məbləğ boş ola bilməz';
+                    final amount = double.tryParse(value);
+                    if (amount == null || amount <= 0)
+                      return 'Məbləğ 0-dan böyük olmalıdır';
+                    if (isPersonal && isPayment && amount > currentAmount)
+                      return 'Ödəniş borcdan çox ola bilməz';
+                    return null;
+                  },
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -235,9 +241,9 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
         builder: (context) {
           return AlertDialog(
             title: const Text("Dəyişiklik Təklif Et"),
-            content: Form(
-              key: formKey,
-              child: SingleChildScrollView(
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -346,21 +352,15 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       final debt = debtData as SharedDebt;
       debtAmount = debt.debtAmount;
 
-      // --- AD MƏNTİQİNİN DÜZƏLDİLMƏSİ ---
       if (_currentUserId != null) {
-        // Əgər mən borcu yaradanamsa -> Qarşı tərəfin adını göstər
         if (debt.user.id.toString() == _currentUserId) {
           displayName = debt.counterpartyUser.name;
-        }
-        // Əgər borc mənə gəlibsə -> Yaradanın adını göstər
-        else {
+        } else {
           displayName = debt.user.name;
         }
       } else {
-        // ID hələ yüklənməyibsə (nadir hal), default olaraq counterparty-ni göstər
         displayName = debt.counterpartyUser.name;
       }
-      // ----------------------------------
     }
 
     return WillPopScope(
@@ -420,31 +420,37 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
             ]
           ],
         ),
+        // --- DÜZƏLİŞ 1: Səhifəni ListView-a çevirdik ki, Overflow xətası getsin ---
         body: _isLoading
             ? const Center(
             child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
-            : Column(children: [
-          _buildHeader(debtAmount, isPersonal, debtData, displayName), // DisplayName-i bura da ötürürük
+            : ListView( // Column əvəzinə ListView istifadə edirik
+          children: [
+            _buildHeader(debtAmount, isPersonal, debtData, displayName),
 
-          _buildInfoSection(isPersonal, debtData),
+            _buildInfoSection(isPersonal, debtData),
 
-          _buildActionButtons(isPersonal),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
-            child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text("Əməliyyat Tarixçəsi",
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black54))),
-          ),
-          _buildHistoryList(),
-        ]),
+            _buildActionButtons(isPersonal),
+
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+              child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text("Əməliyyat Tarixçəsi",
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54))),
+            ),
+
+            _buildHistoryList(),
+          ],
+        ),
       ),
     );
   }
 
+  // --- DÜZƏLİŞ 2: Saatın görünməsi üçün String parser əlavə edildi ---
   Widget _buildInfoSection(bool isPersonal, dynamic debtData) {
     String? notes;
     String? createdAtStr;
@@ -455,9 +461,16 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       notes = debt.notes;
 
       if (debt.createdAt is DateTime) {
-        createdAtStr = DateFormat('dd.MM.yyyy').format(debt.createdAt as DateTime);
+        createdAtStr = DateFormat('dd.MM.yyyy HH:mm').format(debt.createdAt as DateTime);
       } else if (debt.createdAt is String) {
-        createdAtStr = debt.createdAt as String;
+        // Əgər String gəlirsə (məs: 2025-11-20), onu DateTime-a çevirib formatlayırıq
+        try {
+          DateTime dt = DateTime.parse(debt.createdAt as String);
+          createdAtStr = DateFormat('dd.MM.yyyy HH:mm').format(dt);
+        } catch (e) {
+          // Çevirə bilməzsə, olduğu kimi göstər
+          createdAtStr = debt.createdAt as String;
+        }
       } else {
         createdAtStr = null;
       }
@@ -468,7 +481,16 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     } else {
       final debt = debtData as SharedDebt;
       notes = debt.notes;
-      createdAtStr = debt.createdAt;
+
+      // SharedDebt üçün də eyni çevirməni tətbiq edirik
+      if (debt.createdAt != null) {
+        try {
+          DateTime dt = DateTime.parse(debt.createdAt!);
+          createdAtStr = DateFormat('dd.MM.yyyy HH:mm').format(dt);
+        } catch (e) {
+          createdAtStr = debt.createdAt;
+        }
+      }
 
       if (!debt.isFlexibleDueDate && debt.dueYear != null && debt.dueMonth != null) {
         dueDateString = "${debt.dueMonth}/${debt.dueYear}";
@@ -519,7 +541,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     );
   }
 
-  // Header-ə displayName parametrini də əlavə etdim ki, kartın içində də düzgün ad görünsün
   Widget _buildHeader(double amount, bool isPersonal, dynamic debtData, String displayName) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -545,7 +566,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
               if (!isPersonal) ...[
                 const SizedBox(height: 10),
                 Text(
-                  // Artıq hesablanmış düzgün adı göstəririk
                     "Tərəf müqabili: $displayName",
                     style: const TextStyle(color: Colors.white, fontSize: 14)),
               ]
@@ -598,27 +618,33 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     );
   }
 
+  // --- ListView.builder artıq əsas ListView-un içindədir deyə shrinkWrap lazımdır ---
   Widget _buildHistoryList() {
-    return Expanded(
-      child: _history.isEmpty
-          ? const Center(child: Text("Heç bir əməliyyat tapılmadı."))
-          : ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-        itemCount: _history.length,
-        itemBuilder: (context, index) {
-          final historyItem = _history[index];
-          return Card(
-            margin: const EdgeInsets.symmetric(
-                vertical: 4.0, horizontal: 8.0),
-            child: ListTile(
-              leading: _getHistoryIcon(historyItem.eventType),
-              title: Text(historyItem.description),
-              subtitle: Text(DateFormat('dd.MM.yyyy, HH:mm')
-                  .format(historyItem.eventDate.toLocal())),
-            ),
-          );
-        },
-      ),
+    if (_history.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(20.0),
+        child: Center(child: Text("Heç bir əməliyyat tapılmadı.")),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true, // Bu vacibdir ki, əsas ListView içində işləsin
+      physics: const NeverScrollableScrollPhysics(), // Əsas ListView scroll edəcək
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+      itemCount: _history.length,
+      itemBuilder: (context, index) {
+        final historyItem = _history[index];
+        return Card(
+          margin: const EdgeInsets.symmetric(
+              vertical: 4.0, horizontal: 8.0),
+          child: ListTile(
+            leading: _getHistoryIcon(historyItem.eventType),
+            title: Text(historyItem.description),
+            subtitle: Text(DateFormat('dd.MM.yyyy, HH:mm')
+                .format(historyItem.eventDate.toLocal())),
+          ),
+        );
+      },
     );
   }
 
