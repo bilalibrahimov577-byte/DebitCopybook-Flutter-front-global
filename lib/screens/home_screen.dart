@@ -35,8 +35,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentFilterType = 'all';
   int _pendingRequestsCount = 0;
   String? _userUniqueId;
-
-  // ===== DƏYİŞİKLİK 1: Hazırkı istifadəçinin ID-sini saxlamaq üçün yeni dəyişən =====
   String? _myDebtId;
 
   @override
@@ -78,7 +76,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _userUniqueId = userDebtId;
-          // ===== DƏYİŞİKLİK 2: Hazırkı istifadəçinin ID-sini təyin edirik =====
           _myDebtId = userDebtId;
         });
       }
@@ -100,7 +97,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final personalDebts = results[0] as List<Debt>;
       final sharedDebts = results[1] as List<SharedDebt>;
 
-      // Gələn sorğuları ayrıca yükləyirik ki, sayını bilək
       final incomingRequests = await _sharedDebtService.getPendingRequestsForMe(context);
 
       List<UnifiedDebtItem> combinedList = [];
@@ -126,44 +122,102 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadFilteredPersonalDebts({int? year, int? month}) async {
+  // --- YENİLƏNMİŞ METOD: FİLTRLƏR ARTIQ HƏM FƏRDİ, HƏM QARŞILIQLINI GƏTİRİR ---
+  Future<void> _loadFilteredDebts({int? year, int? month}) async {
     if (_isSearching) return;
     setState(() => _isLoading = true);
+
     try {
-      List<Debt> fetchedDebts = [];
+      List<Debt> personalDebts = [];
+      List<SharedDebt> allSharedDebts = [];
+      List<SharedDebt> filteredSharedDebts = [];
       String filterInfo = 'Bütün Borclar';
+
+      // 1. Fərdi borcları API-dən filtrə uyğun çəkirik
       switch (_currentFilterType) {
         case 'my_debts':
-          fetchedDebts = await _debtService.getMyDebts(context);
-          filterInfo = 'Mənim Borclarım (Şəxsi)';
+          personalDebts = await _debtService.getMyDebts(context);
+          filterInfo = 'Mənim Borclarım';
           break;
         case 'debts_to_me':
-          fetchedDebts = await _debtService.getDebtsToMe(context);
-          filterInfo = 'Mənə Olan Borclar (Şəxsi)';
+          personalDebts = await _debtService.getDebtsToMe(context);
+          filterInfo = 'Mənə Olan Borclar';
           break;
         case 'flexible':
-          fetchedDebts = await _debtService.getFlexibleDebts(context);
-          filterInfo = '"Pulum Olanda" Borcları (Şəxsi)';
+          personalDebts = await _debtService.getFlexibleDebts(context);
+          filterInfo = '"Pulum Olanda" Borcları';
           break;
         case 'by_month':
           if (year != null && month != null) {
-            fetchedDebts = await _debtService.getDebtsByYearAndMonth(context, year, month);
-            filterInfo = '$year / $month-ci Ay Borcları (Şəxsi)';
+            personalDebts = await _debtService.getDebtsByYearAndMonth(context, year, month);
+            filterInfo = '$year / $month-ci Ay Borcları';
           }
           break;
         default:
-          _loadDebts();
+          await _loadDebts();
           return;
       }
+
+      // 2. Qarşılıqlı borcları çəkirik və DART tərəfində filtrləyirik
+      // (Backend-də ayrıca filter endpointi olmadığı üçün hamısını çəkib burda süzürük)
+      allSharedDebts = await _sharedDebtService.getConfirmedSharedDebts(context);
+
+      switch (_currentFilterType) {
+        case 'my_debts':
+        // Mənim borclarım (mən Userəm, o Counterparty) -> description "mənim borcum"
+        // Və ya məntiqi olaraq: mən yaratmışamsa və 'mənim borcum' seçmişəmsə.
+        // Sadəlik üçün description-a baxırıq:
+          filteredSharedDebts = allSharedDebts.where((s) {
+            // Məntiq: Mənə görə bu borc nədir?
+            bool iAmOwner = s.user.debtId == _myDebtId;
+            if (iAmOwner) {
+              return s.description == 'mənim borcum';
+            } else {
+              // Əgər qarşı tərəf yaradıbsa və 'mənə olan borclar' seçibsə -> deməli 'mənim borcum'dur
+              return s.description == 'mənə olan borclar';
+            }
+          }).toList();
+          break;
+
+        case 'debts_to_me':
+          filteredSharedDebts = allSharedDebts.where((s) {
+            bool iAmOwner = s.user.debtId == _myDebtId;
+            if (iAmOwner) {
+              return s.description == 'mənə olan borclar';
+            } else {
+              return s.description == 'mənim borcum';
+            }
+          }).toList();
+          break;
+
+        case 'flexible':
+          filteredSharedDebts = allSharedDebts.where((s) => s.isFlexibleDueDate).toList();
+          break;
+
+        case 'by_month':
+          if (year != null && month != null) {
+            filteredSharedDebts = allSharedDebts.where((s) => s.dueYear == year && s.dueMonth == month).toList();
+          }
+          break;
+      }
+
+      // 3. Birləşdiririk
+      List<UnifiedDebtItem> combinedList = [];
+      combinedList.addAll(personalDebts.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
+      combinedList.addAll(filteredSharedDebts.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
+
+      // Tarixə görə sırala (ən yeni yuxarıda)
+      combinedList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
       if (mounted) {
         setState(() {
-          _unifiedDebts = fetchedDebts.map((d) => UnifiedDebtItem.fromPersonalDebt(d)).toList();
+          _unifiedDebts = combinedList;
           _activeFilterInfo = filterInfo;
         });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Məlumatları yükləmək alınmadı: ${e.toString()}')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Xəta: ${e.toString()}')));
       }
     } finally {
       if (mounted) {
@@ -198,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(onPressed: () {
             if (selectedYear != null && selectedMonth != null) {
               setState(() => _currentFilterType = 'by_month');
-              _loadFilteredPersonalDebts(year: selectedYear, month: selectedMonth);
+              _loadFilteredDebts(year: selectedYear, month: selectedMonth); // METOD ADI DƏYİŞDİ
               Navigator.pop(context);
             }
           }, child: const Text('Filtrlə'))
@@ -220,10 +274,28 @@ class _HomeScreenState extends State<HomeScreen> {
           onChanged: (value) async {
             if(value.isEmpty) { _loadDebts(); return; }
             setState(() => _isLoading = true);
-            List<Debt> fetchedDebts = await _debtService.searchDebtsByName(context, value);
+
+            // --- YENİLƏNMİŞ AXTARIŞ MƏNTİQİ ---
+            // 1. Fərdi borcları API-dən axtar
+            List<Debt> personalResults = await _debtService.searchDebtsByName(context, value);
+
+            // 2. Qarşılıqlı borcları hamısını gətir və yerli filtr et
+            List<SharedDebt> allShared = await _sharedDebtService.getConfirmedSharedDebts(context);
+            List<SharedDebt> sharedResults = allShared.where((s) {
+              final name1 = s.counterpartyUser.name.toLowerCase();
+              final name2 = s.user.name.toLowerCase();
+              final query = value.toLowerCase();
+              return name1.contains(query) || name2.contains(query);
+            }).toList();
+
+            // 3. Birləşdir
+            List<UnifiedDebtItem> combinedList = [];
+            combinedList.addAll(personalResults.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
+            combinedList.addAll(sharedResults.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
+
             if (mounted) {
               setState(() {
-                _unifiedDebts = fetchedDebts.map((d) => UnifiedDebtItem.fromPersonalDebt(d)).toList();
+                _unifiedDebts = combinedList;
                 _isLoading = false;
                 _activeFilterInfo = value.isEmpty ? 'Bütün Borclar' : "'$value' üçün nəticələr";
               });
@@ -246,7 +318,6 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'Gözləyən Sorğular',
             onPressed: () async {
               final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => const RequestsScreen()));
-              // Sorğular ekranından qayıdanda siyahını yeniləyirik
               if(result == true || result == null) {
                 _loadDebts();
               }
@@ -260,15 +331,15 @@ class _HomeScreenState extends State<HomeScreen> {
               if (value == 'contact_us') { _launchEmailApp(); return; }
               if (value == 'by_month') { _showMonthFilterDialog(); return; }
               setState(() => _currentFilterType = value);
-              if (value == 'all') { _loadDebts(); } else { _loadFilteredPersonalDebts(); }
+              if (value == 'all') { _loadDebts(); } else { _loadFilteredDebts(); } // METOD ADI DƏYİŞDİ
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(value: 'all', child: Text('Bütün Borclar')),
               const PopupMenuDivider(),
-              const PopupMenuItem<String>(value: 'my_debts', child: Text('Mənim Borclarım (Şəxsi)')),
-              const PopupMenuItem<String>(value: 'debts_to_me', child: Text('Mənə Olan Borclar (Şəxsi)')),
-              const PopupMenuItem<String>(value: 'flexible', child: Text('"Pulum Olanda" (Şəxsi)')),
-              const PopupMenuItem<String>(value: 'by_month', child: Text('İl/Ay üzrə... (Şəxsi)')),
+              const PopupMenuItem<String>(value: 'my_debts', child: Text('Mənim Borclarım')),
+              const PopupMenuItem<String>(value: 'debts_to_me', child: Text('Mənə Olan Borclar')),
+              const PopupMenuItem<String>(value: 'flexible', child: Text('"Pulum Olanda"')),
+              const PopupMenuItem<String>(value: 'by_month', child: Text('İl/Ay üzrə...')),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(value: 'contact_us', child: Row(children: [Icon(Icons.email_outlined, color: Colors.black54), SizedBox(width: 8), Text('Bizimlə Əlaqə')])),
             ],
@@ -449,22 +520,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ===== DƏYİŞİKLİK 3: Bu metod tamamilə yeniləndi =====
+  // ===== DƏYİŞİKLİK: RƏNG MƏNTİQİ ƏLAVƏ EDİLDİ =====
   Widget _buildSharedDebtCard(UnifiedDebtItem item) {
     final debt = item.data as SharedDebt;
-
-    // ----- DİNAMİK MƏNTİQ -----
-    // Hazırkı istifadəçinin bu borcun sahibi (yaradanı) olub-olmadığını yoxlayırıq.
-    // Əgər _myDebtId hələ yüklənməyibsə, təhlükəsizlik üçün false qəbul edirik.
     final bool iAmTheOwner = debt.user.debtId == _myDebtId;
-
-    // Adları və təsviri bu məntiqə görə dinamik olaraq təyin edirik.
-    // Kartın başlığında həmişə qarşı tərəfin adı görünməlidir.
     final String mainTitle = iAmTheOwner ? debt.counterpartyUser.name : debt.user.name;
 
-    // Təsviri (description) borca kimin baxdığına görə tərs çeviririk.
     String descriptionText = debt.description ?? 'Növü təyin edilməyib';
-    if (!iAmTheOwner) { // Əgər mən borcu yaradan DEYİLƏMSƏ (yəni sorğu mənə gəlibsə)
+    if (!iAmTheOwner) {
       if (debt.description == 'mənim borcum') {
         descriptionText = 'mənə olan borclar';
       } else if (debt.description == 'mənə olan borclar') {
@@ -472,10 +535,32 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // --- Rəng Məntiqi (Eyni şəxsi borclarda olduğu kimi) ---
+    final now = DateTime.now();
+    final int currentYear = now.year;
+    final int currentMonth = now.month;
+
+    Color getCardColor() {
+      if (debt.isFlexibleDueDate || debt.dueYear == null || debt.dueMonth == null) {
+        return Colors.white;
+      }
+      final bool isOverdue = debt.dueYear! < currentYear ||
+          (debt.dueYear! == currentYear && debt.dueMonth! < currentMonth);
+      if (isOverdue) {
+        return Colors.red.shade100;
+      }
+      final bool isDueThisMonth = debt.dueYear! == currentYear && debt.dueMonth! == currentMonth;
+      if (isDueThisMonth) {
+        return Colors.amber.shade100;
+      }
+      return Colors.white;
+    }
+    // -----------------------------------------------------
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Card(
-        color: Colors.blue.shade50,
+        color: getCardColor(), // Mavi əvəzinə dinamik rəng
         elevation: 4,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: InkWell(
@@ -495,10 +580,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Başlıqda həmişə qarşı tərəfin adını göstəririk
                       Text(mainTitle, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF333333))),
                       const SizedBox(height: 4),
-                      // Təsviri dinamik olaraq göstəririk
                       Text(descriptionText, style: const TextStyle(color: Colors.black54, fontSize: 14)),
                     ],
                   ),
