@@ -20,7 +20,8 @@ class SharedDebtService {
       return [];
     } catch (e) {
       debugPrint("getPendingRequestsForMe xətası: $e");
-      throw Exception('Gələn sorğuları yükləmək alınmadı.');
+      // Siyahını yükləyə bilmirsə boş siyahı qaytarsın, proqram çökməsin
+      return [];
     }
   }
 
@@ -34,7 +35,7 @@ class SharedDebtService {
       return [];
     } catch (e) {
       debugPrint("getPendingRequestsISent xətası: $e");
-      throw Exception('Göndərilən sorğuları yükləmək alınmadı.');
+      return [];
     }
   }
 
@@ -52,50 +53,76 @@ class SharedDebtService {
     }
   }
 
-  // Yeni qarşılıqlı borc sorğusu yaradır
+  // --- DÜZƏLDİLMİŞ HİSSƏ: BORC YARATMA (LİMİT XƏTASI GÖSTƏRMƏK ÜÇÜN) ---
   Future<void> createSharedDebtRequest(BuildContext context, SharedDebtRequest request) async {
     final response = await ApiService.post(
         context, '$_endpoint/request', body: request.toJson());
 
-    // Log əlavə etdim
-    print("Create Request Status: ${response.statusCode}");
-    print("Create Request Body: ${response.body}");
+    // Serverdən cavabı yoxlayırıq
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      print("Create Request Status: ${response.statusCode}");
+    } else {
+      // Əgər xəta varsa (Məsələn: 15 borc limiti dolubsa)
+      // Serverdən gələn mesajı oxuyuruq
+      final Map<String, dynamic> errorBody = jsonDecode(response.body);
+      String errorMessage = errorBody['message'] ?? "Naməlum xəta baş verdi";
+
+      // Xətanı atırıq ki, ekranda SnackBar ilə görünsün
+      throw Exception(errorMessage);
+    }
   }
 
   // Qarşılıqlı borc sorğusuna cavab verir (qəbul/rədd)
   Future<void> respondToSharedDebtRequest(BuildContext context, int debtId, SharedDebtResponseRequest responseData) async {
-    await ApiService.post(
+    final response = await ApiService.post(
         context, '$_endpoint/$debtId/respond', body: responseData.toJson());
+
+    if (response.statusCode != 200) {
+      final Map<String, dynamic> errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['message'] ?? "Sorğuya cavab verərkən xəta oldu");
+    }
   }
 
-  // Dəyişiklik təklifi yaradır
+  // --- DÜZƏLDİLMİŞ HİSSƏ: TƏKLİF GÖNDƏRMƏ (3 TƏKLİF LİMİTİ ÜÇÜN) ---
   Future<void> createUpdateProposal(BuildContext context, int debtId, UpdateProposalRequest proposal) async {
-    // Cavabı 'response' dəyişəninə götürürük
     final response = await ApiService.post(
         context, '$_endpoint/$debtId/propose-update', body: proposal.toJson());
 
-    // İndi cavabı terminala yazdırırıq ki, xətanı görək
     print("---------------- LOG START ----------------");
     print("URL: $_endpoint/$debtId/propose-update");
     print("STATUS CODE: ${response.statusCode}");
     print("BODY: ${response.body}");
     print("---------------- LOG END ------------------");
+
+    // Status kodunu yoxlayırıq
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      // Uğurludur
+    } else {
+      // Xəta var (Limit dolub və ya vaxt bitməyib)
+      final Map<String, dynamic> errorBody = jsonDecode(response.body);
+      String errorMessage = errorBody['message'] ?? "Təklif göndərilə bilmədi";
+
+      // Xətanı atırıq
+      throw Exception(errorMessage);
+    }
   }
 
   // Dəyişiklik təklifinə cavab verir
-  Future<void> respondToUpdateProposal(BuildContext context, int proposalId, SharedDebtResponseRequest response) async {
-    await ApiService.post(
-        context, '$_endpoint/proposals/$proposalId/respond', body: response.toJson());
+  Future<void> respondToUpdateProposal(BuildContext context, int proposalId, SharedDebtResponseRequest responseData) async {
+    final response = await ApiService.post(
+        context, '$_endpoint/proposals/$proposalId/respond', body: responseData.toJson());
+
+    if (response.statusCode != 200) {
+      final Map<String, dynamic> errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['message'] ?? "Təklifə cavab verərkən xəta oldu");
+    }
   }
 
-  // --- YENİ ƏLAVƏ EDİLƏNLƏR ---
-
-  // Mənə gələn DƏYİŞİKLİK təkliflərini gətir (Məsələn: kimsə borcu artırmaq istəyir)
+  // Mənə gələn DƏYİŞİKLİK təkliflərini gətir
   Future<List<ProposalResponse>> getIncomingProposals(BuildContext context) async {
     try {
       final response = await ApiService.get(context, '$_endpoint/proposals/incoming');
       if (response.statusCode == 200) {
-        // Serverdən gələn JSON-u Dart obyektinə çeviririk
         return proposalListFromJson(jsonDecode(response.body));
       }
       return [];
@@ -105,7 +132,7 @@ class SharedDebtService {
     }
   }
 
-  // Mənim göndərdiyim DƏYİŞİKLİK təkliflərini gətir (Statusunu görmək üçün)
+  // Mənim göndərdiyim DƏYİŞİKLİK təkliflərini gətir
   Future<List<ProposalResponse>> getOutgoingProposals(BuildContext context) async {
     try {
       final response = await ApiService.get(context, '$_endpoint/proposals/outgoing');

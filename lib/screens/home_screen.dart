@@ -1,5 +1,6 @@
 // lib/screens/home_screen.dart
 
+import 'dart:async'; // Timer üçün lazımdır
 import 'package:borc_defteri/models/shared_debt/shared_debt.dart';
 import 'package:borc_defteri/screens/requests_screen.dart';
 import 'package:borc_defteri/services/shared_debt_service.dart';
@@ -37,6 +38,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _userUniqueId;
   String? _myDebtId;
 
+  // --- YENİ: Bildirişləri yoxlamaq üçün Timer ---
+  Timer? _notificationTimer;
+
   @override
   void initState() {
     super.initState();
@@ -46,7 +50,43 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _notificationTimer?.cancel(); // Səhifədən çıxanda timer dayanmalıdır
     super.dispose();
+  }
+
+  // --- YENİ: Timer-i başladan metod ---
+  void _startNotificationTimer() {
+    // Əgər artıq işləyirsə, dayandır ki, dublikat olmasın
+    _notificationTimer?.cancel();
+
+    // Hər 5 saniyədən bir yoxlayır
+    _notificationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (mounted && !_isSearching) { // Axtarış rejimində deyiliksə yoxla
+        _checkPendingRequestsBackground();
+      }
+    });
+  }
+
+  // --- YENİ: Arxa planda (Loading göstərmədən) sorğuları yoxlayan metod ---
+  Future<void> _checkPendingRequestsBackground() async {
+    try {
+      // Həm yeni borc istəklərini, həm də dəyişiklik təkliflərini yoxlaya bilərik.
+      // Hazırda yalnız borc istəklərini yoxlayırıq (RequestsScreen məntiqinə uyğun).
+      // Əgər dəyişiklik təkliflərini də saymaq istəyirsənsə, onları da bura əlavə edə bilərik.
+      final incomingRequests = await _sharedDebtService.getPendingRequestsForMe(context);
+      final incomingProposals = await _sharedDebtService.getIncomingProposals(context);
+
+      int totalCount = incomingRequests.length + incomingProposals.length;
+
+      if (mounted) {
+        setState(() {
+          _pendingRequestsCount = totalCount;
+        });
+      }
+    } catch (e) {
+      // Arxa planda xəta olsa istifadəçini narahat etmirik (konsola yazır)
+      debugPrint("Bildiriş yoxlama xətası: $e");
+    }
   }
 
   Future<void> _launchEmailApp() async {
@@ -79,7 +119,10 @@ class _HomeScreenState extends State<HomeScreen> {
           _myDebtId = userDebtId;
         });
       }
-      _loadDebts();
+      await _loadDebts();
+
+      // Borclar yüklənəndən sonra Timer-i başladırıq
+      _startNotificationTimer();
     }
   }
 
@@ -97,7 +140,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final personalDebts = results[0] as List<Debt>;
       final sharedDebts = results[1] as List<SharedDebt>;
 
+      // İlk açılışda sayları da yoxlayırıq
       final incomingRequests = await _sharedDebtService.getPendingRequestsForMe(context);
+      final incomingProposals = await _sharedDebtService.getIncomingProposals(context);
 
       List<UnifiedDebtItem> combinedList = [];
       combinedList.addAll(personalDebts.map((debt) => UnifiedDebtItem.fromPersonalDebt(debt)));
@@ -107,7 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _unifiedDebts = combinedList;
-          _pendingRequestsCount = incomingRequests.length;
+          _pendingRequestsCount = incomingRequests.length + incomingProposals.length;
           _activeFilterInfo = 'Bütün Borclar';
         });
       }
@@ -122,7 +167,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- YENİLƏNMİŞ METOD: FİLTRLƏR ARTIQ HƏM FƏRDİ, HƏM QARŞILIQLINI GƏTİRİR ---
+  // --- FILTR METODU (Həm fərdi, həm qarşılıqlı) ---
   Future<void> _loadFilteredDebts({int? year, int? month}) async {
     if (_isSearching) return;
     setState(() => _isLoading = true);
@@ -133,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
       List<SharedDebt> filteredSharedDebts = [];
       String filterInfo = 'Bütün Borclar';
 
-      // 1. Fərdi borcları API-dən filtrə uyğun çəkirik
+      // 1. Fərdi borclar
       switch (_currentFilterType) {
         case 'my_debts':
           personalDebts = await _debtService.getMyDebts(context);
@@ -158,22 +203,16 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
       }
 
-      // 2. Qarşılıqlı borcları çəkirik və DART tərəfində filtrləyirik
-      // (Backend-də ayrıca filter endpointi olmadığı üçün hamısını çəkib burda süzürük)
+      // 2. Qarşılıqlı borclar
       allSharedDebts = await _sharedDebtService.getConfirmedSharedDebts(context);
 
       switch (_currentFilterType) {
         case 'my_debts':
-        // Mənim borclarım (mən Userəm, o Counterparty) -> description "mənim borcum"
-        // Və ya məntiqi olaraq: mən yaratmışamsa və 'mənim borcum' seçmişəmsə.
-        // Sadəlik üçün description-a baxırıq:
           filteredSharedDebts = allSharedDebts.where((s) {
-            // Məntiq: Mənə görə bu borc nədir?
             bool iAmOwner = s.user.debtId == _myDebtId;
             if (iAmOwner) {
               return s.description == 'mənim borcum';
             } else {
-              // Əgər qarşı tərəf yaradıbsa və 'mənə olan borclar' seçibsə -> deməli 'mənim borcum'dur
               return s.description == 'mənə olan borclar';
             }
           }).toList();
@@ -201,12 +240,11 @@ class _HomeScreenState extends State<HomeScreen> {
           break;
       }
 
-      // 3. Birləşdiririk
+      // 3. Birləşdir
       List<UnifiedDebtItem> combinedList = [];
       combinedList.addAll(personalDebts.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
       combinedList.addAll(filteredSharedDebts.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
 
-      // Tarixə görə sırala (ən yeni yuxarıda)
       combinedList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       if (mounted) {
@@ -252,7 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(onPressed: () {
             if (selectedYear != null && selectedMonth != null) {
               setState(() => _currentFilterType = 'by_month');
-              _loadFilteredDebts(year: selectedYear, month: selectedMonth); // METOD ADI DƏYİŞDİ
+              _loadFilteredDebts(year: selectedYear, month: selectedMonth);
               Navigator.pop(context);
             }
           }, child: const Text('Filtrlə'))
@@ -275,11 +313,8 @@ class _HomeScreenState extends State<HomeScreen> {
             if(value.isEmpty) { _loadDebts(); return; }
             setState(() => _isLoading = true);
 
-            // --- YENİLƏNMİŞ AXTARIŞ MƏNTİQİ ---
-            // 1. Fərdi borcları API-dən axtar
+            // AXTARIŞ (Həm fərdi, həm qarşılıqlı)
             List<Debt> personalResults = await _debtService.searchDebtsByName(context, value);
-
-            // 2. Qarşılıqlı borcları hamısını gətir və yerli filtr et
             List<SharedDebt> allShared = await _sharedDebtService.getConfirmedSharedDebts(context);
             List<SharedDebt> sharedResults = allShared.where((s) {
               final name1 = s.counterpartyUser.name.toLowerCase();
@@ -288,7 +323,6 @@ class _HomeScreenState extends State<HomeScreen> {
               return name1.contains(query) || name2.contains(query);
             }).toList();
 
-            // 3. Birləşdir
             List<UnifiedDebtItem> combinedList = [];
             combinedList.addAll(personalResults.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
             combinedList.addAll(sharedResults.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
@@ -312,7 +346,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: Badge(
               label: Text(_pendingRequestsCount.toString()),
-              isLabelVisible: _pendingRequestsCount > 0,
+              isLabelVisible: _pendingRequestsCount > 0, // 0-dan çoxdursa qırmızı nöqtə görünür
               child: const Icon(Icons.notifications_outlined),
             ),
             tooltip: 'Gözləyən Sorğular',
@@ -331,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (value == 'contact_us') { _launchEmailApp(); return; }
               if (value == 'by_month') { _showMonthFilterDialog(); return; }
               setState(() => _currentFilterType = value);
-              if (value == 'all') { _loadDebts(); } else { _loadFilteredDebts(); } // METOD ADI DƏYİŞDİ
+              if (value == 'all') { _loadDebts(); } else { _loadFilteredDebts(); }
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(value: 'all', child: Text('Bütün Borclar')),
@@ -520,7 +554,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ===== DƏYİŞİKLİK: RƏNG MƏNTİQİ ƏLAVƏ EDİLDİ =====
   Widget _buildSharedDebtCard(UnifiedDebtItem item) {
     final debt = item.data as SharedDebt;
     final bool iAmTheOwner = debt.user.debtId == _myDebtId;
@@ -535,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // --- Rəng Məntiqi (Eyni şəxsi borclarda olduğu kimi) ---
+    // --- RƏNG MƏNTİQİ ---
     final now = DateTime.now();
     final int currentYear = now.year;
     final int currentMonth = now.month;
@@ -555,12 +588,12 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return Colors.white;
     }
-    // -----------------------------------------------------
+    // -------------------
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Card(
-        color: getCardColor(), // Mavi əvəzinə dinamik rəng
+        color: getCardColor(),
         elevation: 4,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: InkWell(
