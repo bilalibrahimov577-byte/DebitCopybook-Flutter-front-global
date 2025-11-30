@@ -10,12 +10,16 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Səs və Vibrasiya paketləri
+  audioplayers: ^6.0.0
+
+
+  # Digər paketlər
   flutter_launcher_icons: ^0.13.1
   cupertino_icons: ^1.0.8
   google_sign_in: ^6.1.0
   http: ^1.2.1
   flutter_secure_storage: ^9.0.0
-
   url_launcher: ^6.2.6
   intl: ^0.19.0
   change_app_package_name: ^1.5.0
@@ -23,15 +27,15 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
 
-  # === BU HİSSƏNİ DÜZƏLTDİM ===
+  # === ASSETS HİSSƏSİ ===
   assets:
     - assets/google_logo.png
+    - assets/sounds/ # <-- BU SƏTRİ ƏLAVƏ ETDİM Kİ, SƏS FAYLINI GÖRSÜN
 
 flutter_launcher_icons:
   android: "launcher_icon"

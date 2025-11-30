@@ -1,6 +1,6 @@
 // lib/screens/home_screen.dart
 
-import 'dart:async'; // Timer üçün lazımdır
+import 'dart:async';
 import 'package:borc_defteri/models/shared_debt/shared_debt.dart';
 import 'package:borc_defteri/screens/requests_screen.dart';
 import 'package:borc_defteri/services/shared_debt_service.dart';
@@ -12,6 +12,11 @@ import 'package:borc_defteri/screens/debt_details_screen.dart';
 import 'package:borc_defteri/screens/add_debt_screen.dart';
 import 'package:borc_defteri/screens/login_page.dart';
 import 'package:borc_defteri/services/auth_service.dart';
+
+// --- YENİ IMPORTLAR ---
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart'; // HapticFeedback (Vibrasiya) üçün lazımdır
+// ---------------------
 
 import '../models/unified_debt_item.dart';
 
@@ -38,8 +43,13 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _userUniqueId;
   String? _myDebtId;
 
-  // --- YENİ: Bildirişləri yoxlamaq üçün Timer ---
+  // Bildiriş üçün Timer
   Timer? _notificationTimer;
+
+  // Səs oynadan
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  // Son bilinən sorğu sayı
+  int _lastKnownCount = 0;
 
   @override
   void initState() {
@@ -50,44 +60,59 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    _notificationTimer?.cancel(); // Səhifədən çıxanda timer dayanmalıdır
+    _notificationTimer?.cancel();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
-  // --- YENİ: Timer-i başladan metod ---
   void _startNotificationTimer() {
-    // Əgər artıq işləyirsə, dayandır ki, dublikat olmasın
     _notificationTimer?.cancel();
-
-    // Hər 5 saniyədən bir yoxlayır
     _notificationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (mounted && !_isSearching) { // Axtarış rejimində deyiliksə yoxla
+      if (mounted && !_isSearching) {
         _checkPendingRequestsBackground();
       }
     });
   }
 
-  // --- YENİ: Arxa planda (Loading göstərmədən) sorğuları yoxlayan metod ---
   Future<void> _checkPendingRequestsBackground() async {
     try {
-      // Həm yeni borc istəklərini, həm də dəyişiklik təkliflərini yoxlaya bilərik.
-      // Hazırda yalnız borc istəklərini yoxlayırıq (RequestsScreen məntiqinə uyğun).
-      // Əgər dəyişiklik təkliflərini də saymaq istəyirsənsə, onları da bura əlavə edə bilərik.
       final incomingRequests = await _sharedDebtService.getPendingRequestsForMe(context);
       final incomingProposals = await _sharedDebtService.getIncomingProposals(context);
 
       int totalCount = incomingRequests.length + incomingProposals.length;
 
+      // Əgər yeni say köhnədən çoxdursa -> Səs çal və Titrə!
+      if (totalCount > _lastKnownCount) {
+        _playNotificationSound();
+      }
+
       if (mounted) {
         setState(() {
           _pendingRequestsCount = totalCount;
+          _lastKnownCount = totalCount;
         });
       }
     } catch (e) {
-      // Arxa planda xəta olsa istifadəçini narahat etmirik (konsola yazır)
       debugPrint("Bildiriş yoxlama xətası: $e");
     }
   }
+
+  // --- YENİLƏNMİŞ SƏS VƏ VİBRASİYA METODU ---
+  Future<void> _playNotificationSound() async {
+    try {
+      // 1. Vibrasiya (Flutter-in öz daxili sistemi ilə - Xətasız)
+      await HapticFeedback.heavyImpact();
+
+      // 2. Səs (Assets qovluğunda fayl varsa)
+      // Əgər assets/sounds/notification.mp3 faylını qoymusansa işləyəcək
+      // Qoymamısansa bu sətri bağla
+      await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
+
+    } catch (e) {
+      debugPrint("Səs/Vibrasiya xətası: $e");
+    }
+  }
+  // ----------------------------------------
 
   Future<void> _launchEmailApp() async {
     const String email = 'ibrahimovbilal9@gmail.com';
@@ -121,7 +146,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       await _loadDebts();
 
-      // Borclar yüklənəndən sonra Timer-i başladırıq
+      // İlk yükləmədə sayğacı bərabərləşdiririk ki, ilk açılışda səs çıxmasın
+      _lastKnownCount = _pendingRequestsCount;
       _startNotificationTimer();
     }
   }
@@ -140,7 +166,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final personalDebts = results[0] as List<Debt>;
       final sharedDebts = results[1] as List<SharedDebt>;
 
-      // İlk açılışda sayları da yoxlayırıq
       final incomingRequests = await _sharedDebtService.getPendingRequestsForMe(context);
       final incomingProposals = await _sharedDebtService.getIncomingProposals(context);
 
@@ -153,6 +178,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _unifiedDebts = combinedList;
           _pendingRequestsCount = incomingRequests.length + incomingProposals.length;
+          _lastKnownCount = _pendingRequestsCount; // Burada da yeniləyirik
           _activeFilterInfo = 'Bütün Borclar';
         });
       }
@@ -167,7 +193,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- FILTR METODU (Həm fərdi, həm qarşılıqlı) ---
   Future<void> _loadFilteredDebts({int? year, int? month}) async {
     if (_isSearching) return;
     setState(() => _isLoading = true);
@@ -178,7 +203,6 @@ class _HomeScreenState extends State<HomeScreen> {
       List<SharedDebt> filteredSharedDebts = [];
       String filterInfo = 'Bütün Borclar';
 
-      // 1. Fərdi borclar
       switch (_currentFilterType) {
         case 'my_debts':
           personalDebts = await _debtService.getMyDebts(context);
@@ -203,7 +227,6 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
       }
 
-      // 2. Qarşılıqlı borclar
       allSharedDebts = await _sharedDebtService.getConfirmedSharedDebts(context);
 
       switch (_currentFilterType) {
@@ -240,7 +263,6 @@ class _HomeScreenState extends State<HomeScreen> {
           break;
       }
 
-      // 3. Birləşdir
       List<UnifiedDebtItem> combinedList = [];
       combinedList.addAll(personalDebts.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
       combinedList.addAll(filteredSharedDebts.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
@@ -313,7 +335,6 @@ class _HomeScreenState extends State<HomeScreen> {
             if(value.isEmpty) { _loadDebts(); return; }
             setState(() => _isLoading = true);
 
-            // AXTARIŞ (Həm fərdi, həm qarşılıqlı)
             List<Debt> personalResults = await _debtService.searchDebtsByName(context, value);
             List<SharedDebt> allShared = await _sharedDebtService.getConfirmedSharedDebts(context);
             List<SharedDebt> sharedResults = allShared.where((s) {
@@ -346,7 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: Badge(
               label: Text(_pendingRequestsCount.toString()),
-              isLabelVisible: _pendingRequestsCount > 0, // 0-dan çoxdursa qırmızı nöqtə görünür
+              isLabelVisible: _pendingRequestsCount > 0,
               child: const Icon(Icons.notifications_outlined),
             ),
             tooltip: 'Gözləyən Sorğular',
@@ -568,7 +589,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // --- RƏNG MƏNTİQİ ---
     final now = DateTime.now();
     final int currentYear = now.year;
     final int currentMonth = now.month;
@@ -588,7 +608,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return Colors.white;
     }
-    // -------------------
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
