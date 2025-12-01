@@ -57,8 +57,8 @@ android {
             signingConfig = signingConfigs.getByName("release")
 
             // Bu sətirlər release versiyasında kodu kiçildir və optimizasiya edir
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

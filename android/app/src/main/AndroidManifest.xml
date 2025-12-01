@@ -1,12 +1,18 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.bilalibrahimov.borcdefteri">
 
     <!-- İnternetə çıxış icazəsi -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- BU SƏTRİ ƏLAVƏ ETDİM (Sənin xətanı düzəldən kod budur) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID"/>
 
     <application
         android:label="Borc Dəftəri"
         android:name="${applicationName}"
-        android:icon="@mipmap/launcher_icon">
+        android:icon="@mipmap/launcher_icon"
+        android:usesCleartextTraffic="true"> <!-- Server xətası üçün bu da qalsın -->
 
         <activity
             android:name=".MainActivity"
@@ -27,17 +33,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Google Play Servislərinin keş problemini həll etmək üçün -->
+        <!-- Google Play Servislərinin keş problemi üçün -->
         <meta-data
             android:name="com.google.android.gms.phenotype.registration.proto.v1"
             android:value="" />
 
-        <!-- Google AdMob Tətbiq ID-si -->
+        <!-- AdMob ID (Reklam) -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-1488367137709334~6405570057"/>
 
-        <!-- Flutter tərəfindən istifadə olunur -->
+        <!-- Flutter -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

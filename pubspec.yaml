@@ -1,7 +1,7 @@
 name: borc_defteri
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.1+16 # Versiyanı artırdıq
+version: 1.0.1+20 # Versiyanı artırdıq
 
 environment:
   sdk: '>=3.4.3 <4.0.0'
