@@ -1,7 +1,7 @@
 name: borc_defteri
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.0+14
+version: 1.0.1+16 # Versiyanı artırdıq
 
 environment:
   sdk: '>=3.4.3 <4.0.0'
@@ -10,9 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Səs və Vibrasiya paketləri
+  # Səs paketi
   audioplayers: ^6.0.0
 
+  # Avtomatik Yeniləmə Paketi (YENİ ƏLAVƏ)
+  upgrader: ^10.3.0
 
   # Digər paketlər
   flutter_launcher_icons: ^0.13.1
@@ -35,7 +37,7 @@ flutter:
   # === ASSETS HİSSƏSİ ===
   assets:
     - assets/google_logo.png
-    - assets/sounds/ # <-- BU SƏTRİ ƏLAVƏ ETDİM Kİ, SƏS FAYLINI GÖRSÜN
+    - assets/sounds/
 
 flutter_launcher_icons:
   android: "launcher_icon"
