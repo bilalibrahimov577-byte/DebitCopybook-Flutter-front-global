@@ -420,11 +420,11 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
             ]
           ],
         ),
-        // --- DÜZƏLİŞ 1: Səhifəni ListView-a çevirdik ki, Overflow xətası getsin ---
+        // Sənin istədiyin kimi ListView qayıtdı (Column yox)
         body: _isLoading
             ? const Center(
             child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
-            : ListView( // Column əvəzinə ListView istifadə edirik
+            : ListView(
           children: [
             _buildHeader(debtAmount, isPersonal, debtData, displayName),
 
@@ -450,12 +450,13 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     );
   }
 
-  // --- DÜZƏLİŞ 2: Saatın görünməsi üçün String parser əlavə edildi ---
+  // --- MƏLUMAT KARTI: Orijinal versiya + Fərdi borcda gizlətmə ---
   Widget _buildInfoSection(bool isPersonal, dynamic debtData) {
     String? notes;
     String? createdAtStr;
     String dueDateString = "Müddətsiz / İmkan olanda";
 
+    // Orijinal kodun məntiqi
     if (isPersonal) {
       final debt = debtData as Debt;
       notes = debt.notes;
@@ -463,12 +464,10 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       if (debt.createdAt is DateTime) {
         createdAtStr = DateFormat('dd.MM.yyyy HH:mm').format(debt.createdAt as DateTime);
       } else if (debt.createdAt is String) {
-        // Əgər String gəlirsə (məs: 2025-11-20), onu DateTime-a çevirib formatlayırıq
         try {
           DateTime dt = DateTime.parse(debt.createdAt as String);
           createdAtStr = DateFormat('dd.MM.yyyy HH:mm').format(dt);
         } catch (e) {
-          // Çevirə bilməzsə, olduğu kimi göstər
           createdAtStr = debt.createdAt as String;
         }
       } else {
@@ -482,7 +481,7 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       final debt = debtData as SharedDebt;
       notes = debt.notes;
 
-      // SharedDebt üçün də eyni çevirməni tətbiq edirik
+      // Orijinal kodda olduğu kimi (vaxt parse olunur)
       if (debt.createdAt != null) {
         try {
           DateTime dt = DateTime.parse(debt.createdAt!);
@@ -507,7 +506,9 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
           padding: const EdgeInsets.all(12.0),
           child: Column(
             children: [
-              if (createdAtStr != null)
+              // --- DÜZƏLİŞ BURADADIR ---
+              // Şərt: Tarix varsa VƏ bu Fərdi borc deyilsə (yəni Shared-dirsə) göstər.
+              if (createdAtStr != null && !isPersonal)
                 ListTile(
                   dense: true,
                   leading: const Icon(Icons.calendar_today, color: Colors.blue),
@@ -618,7 +619,6 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     );
   }
 
-  // --- ListView.builder artıq əsas ListView-un içindədir deyə shrinkWrap lazımdır ---
   Widget _buildHistoryList() {
     if (_history.isEmpty) {
       return const Padding(
@@ -628,8 +628,8 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     }
 
     return ListView.builder(
-      shrinkWrap: true, // Bu vacibdir ki, əsas ListView içində işləsin
-      physics: const NeverScrollableScrollPhysics(), // Əsas ListView scroll edəcək
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
       itemCount: _history.length,
       itemBuilder: (context, index) {
@@ -640,6 +640,7 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
           child: ListTile(
             leading: _getHistoryIcon(historyItem.eventType),
             title: Text(historyItem.description),
+            // Orijinal format
             subtitle: Text(DateFormat('dd.MM.yyyy, HH:mm')
                 .format(historyItem.eventDate.toLocal())),
           ),
