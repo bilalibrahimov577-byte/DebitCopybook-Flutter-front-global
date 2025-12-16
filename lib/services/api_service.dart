@@ -11,7 +11,8 @@ class ApiService {
   // --- BÜTÜN DƏYİŞİKLİK BURADADIR ---
 
   // 1. Production (əsas) servisinizin URL-i
-  static const String _productionBaseUrl = "https://debitcopybook-backend-global-c9pw.onrender.com";
+  static const String _productionBaseUrl = "https://debitcopybook-backend-global-test1.onrender.com";
+      //"https://debitcopybook-backend-global-c9pw.onrender.com";
   // 2. Yeni yaratdığınız test servisinizin URL-i
   static const String _testBaseUrl = "https://debitcopybook-backend-global-test1.onrender.com";
 

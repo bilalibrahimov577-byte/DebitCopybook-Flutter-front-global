@@ -83,13 +83,16 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
   }
 
   Future<void> _fetchMyDebtId() async {
-    _myDebtId = await _authService.getUserDebtId();
-    if (mounted) {
-      setState(() {});
+    try {
+      _myDebtId = await _authService.getUserDebtId();
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint("ID tapılmadı: $e");
     }
   }
 
-  // --- ƏSAS DÜZƏLİŞ BURADADIR ---
   Future<void> _saveDebt() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -105,15 +108,13 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     setState(() => _isSaving = true);
 
     try {
-      // Burada IF-ELSE işlədiyi üçün EYNİ ANDA yalnız biri işləyəcək.
-      // Bu da "2 borc yaranma" problemini həll edir.
       if (_creationType == DebtCreationType.personal) {
         await _savePersonalDebt();
       } else {
-        // Shared seçilibsə, personal funksiyası qətiyyən çağırılmır
         await _saveSharedDebt();
       }
     } catch (e) {
+      // Ümumi xəta tutucu (Personal debt üçün)
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Xəta: ${e.toString()}'), backgroundColor: Colors.red),
@@ -127,10 +128,13 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
   }
 
   Future<void> _savePersonalDebt() async {
+    // Vergül problemini burada da həll edirik
+    double amount = double.parse(_debtAmountController.text.replaceAll(',', '.').trim());
+
     final debtRequest = DebtRequest(
       debtorName: _debtorNameController.text,
       description: _selectedPersonalDebtType,
-      debtAmount: double.parse(_debtAmountController.text),
+      debtAmount: amount,
       notes: _notesController.text.isNotEmpty ? _notesController.text : null,
       isFlexibleDueDate: _isFlexible,
       dueYear: _isFlexible ? null : _selectedYear,
@@ -156,32 +160,72 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     }
   }
 
+  // --- ƏSAS DÜZƏLİŞ EDİLƏN HİSSƏ (TRY-CATCH və ERROR DIALOG) ---
   Future<void> _saveSharedDebt() async {
-    // Qarşılıqlı borc üçün ID mütləq olmalıdır
+    // 1. ID yoxlanışı
     if (_counterpartyIdController.text.isEmpty) {
-      throw Exception("Qarşı tərəfin ID-si daxil edilməyib");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Qarşı tərəfin ID-si daxil edilməyib"), backgroundColor: Colors.red),
+      );
+      return;
     }
 
-    final request = SharedDebtRequest(
-      counterpartyDebtId: _counterpartyIdController.text,
-      // Backend qarşı tərəfin adını özü tapır, ona görə bura boş da gedə bilər
-      debtorName: "",
-      debtAmount: double.parse(_debtAmountController.text),
-      description: _selectedPersonalDebtType,
-      notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-      isFlexibleDueDate: _isFlexible,
-      dueYear: _isFlexible ? null : _selectedYear,
-      dueMonth: _isFlexible ? null : _selectedMonth,
-    );
+    try {
+      // 2. Məbləği təmizləyib (vergülü nöqtəyə çevirib) parse edirik
+      String cleanAmountString = _debtAmountController.text.replaceAll(',', '.').trim();
+      double parsedAmount = double.parse(cleanAmountString);
 
-    // Burada yalnız SharedDebt servisi çağırılır
-    await _sharedDebtService.createSharedDebtRequest(context, request);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
+      final request = SharedDebtRequest(
+        counterpartyDebtId: _counterpartyIdController.text.trim(),
+        // Backend qarşı tərəfin adını özü tapır
+        debtorName: "",
+        debtAmount: parsedAmount,
+        description: _selectedPersonalDebtType,
+        notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+        isFlexibleDueDate: _isFlexible,
+        dueYear: _isFlexible ? null : _selectedYear,
+        dueMonth: _isFlexible ? null : _selectedMonth,
       );
-      Navigator.of(context).pop(true);
+
+      // 3. Serialization Check (Model xətası varsa burda tutaq)
+      try {
+        request.toJson();
+      } catch (e) {
+        throw Exception("Model JSON-a çevrilə bilmədi (ProGuard/Minify Xətası): $e");
+      }
+
+      // Servisə sorğu göndər
+      await _sharedDebtService.createSharedDebtRequest(context, request);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
+        );
+        Navigator.of(context).pop(true);
+      }
+
+    } catch (e, stacktrace) {
+      // --- XƏTANI EKRANA ÇIXARAN HİSSƏ ---
+      print("SharedDebt Xəta: $e"); // Debug log üçün
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text("Xəta Baş Verdi"),
+            content: SingleChildScrollView(
+              child: SelectableText(
+                  "Səbəb: $e\n\nStack: $stacktrace"),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Bağla"),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
@@ -264,12 +308,6 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                         if (value == _myDebtId) {
                           return 'Öz ID-nizi daxil edə bilməzsiniz';
                         }
-                        // ID formatı yoxlanışı (lazımdırsa aktivləşdir)
-                        /*
-                        if (!RegExp(r'^\d{2}-\d{2}$').hasMatch(value)) {
-                          return 'ID formatı düzgün deyil (Məs: 12-34)';
-                        }
-                        */
                       }
                       return null;
                     },
@@ -281,7 +319,8 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                   controller: _debtAmountController,
                   decoration: _inputDecoration('Məbləğ (₼)'),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                  // DÜZƏLİŞ: Regex həm vergül, həm nöqtə qəbul edir
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+[\.,]?\d{0,2}'))],
                   validator: _validateAmount,
                 ),
                 const SizedBox(height: 16),
@@ -379,7 +418,9 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
 
   String? _validateAmount(String? value) {
     if (value == null || value.isEmpty) return 'Bu xana boş buraxıla bilməz';
-    final amount = double.tryParse(value);
+    // Vergül yoxlanışı
+    String cleanValue = value.replaceAll(',', '.');
+    final amount = double.tryParse(cleanValue);
     if (amount == null) return 'Zəhmət olmasa düzgün rəqəm daxil edin';
     if (!_isEditMode && amount <= 0) return 'Məbləğ sıfırdan böyük olmalıdır';
     return null;
