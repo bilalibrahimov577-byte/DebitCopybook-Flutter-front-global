@@ -46,6 +46,7 @@ android {
     defaultConfig {
         applicationId = "com.bilalibrahimov.borcdefteri"
         minSdk = flutter.minSdkVersion
+            //flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = localProperties().getProperty("flutter.versionCode")?.toInt() ?: 1
         versionName = localProperties().getProperty("flutter.versionName")
@@ -72,5 +73,6 @@ flutter {
 }
 
 dependencies {
+    implementation("com.android.billingclient:billing:6.1.0")
     // Proyektin kitabxanaları (dependencies) buraya əlavə olunur
 }

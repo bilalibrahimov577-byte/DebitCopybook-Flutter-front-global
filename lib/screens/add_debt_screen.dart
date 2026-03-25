@@ -1,6 +1,7 @@
 // lib/screens/add_debt_screen.dart
 
 import 'package:borc_defteri/models/shared_debt/shared_debt_request.dart';
+import 'package:borc_defteri/screens/premium_screen.dart';
 import 'package:borc_defteri/services/auth_service.dart';
 import 'package:borc_defteri/services/shared_debt_service.dart';
 import 'package:flutter/material.dart';
@@ -150,84 +151,182 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
 
     if (mounted && (result['success'] ?? false)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Fərdi borc uğurla yadda saxlanıldı!"), backgroundColor: Colors.green),
+        const SnackBar(content: Text("Fərdi borc uğurla yadda saxlanıldı!"),
+            backgroundColor: Colors.green),
       );
       Navigator.of(context).pop(true);
+
+      //else if (mounted) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(content: Text(result['message'] ?? "Bilinməyən xəta"), backgroundColor: Colors.red),
+      //   );
+      // }
+
+      // AddDebtScreen.dart içində _savePersonalDebt metodu
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? "Bilinməyən xəta"), backgroundColor: Colors.red),
-      );
-    }
+  String errorMsg = result['message'] ?? "";
+  print("Backend-den gelen xeta: $errorMsg");
+
+  // Şərti daha geniş qoyuruq ki, mesajın istənilən yerində bu sözlər olsa tutsun
+  if (errorMsg.contains("15") && errorMsg.contains("limit")) {
+  print("Limit xətası aşkar edildi, dialoq açılır...");
+  _showPremiumLimitDialog(errorMsg);
+  } else {
+  print("Başqa bir xəta baş verdi.");
+  ScaffoldMessenger.of(context).showSnackBar(
+  SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+  );
+  }
   }
 
-  // --- ƏSAS DÜZƏLİŞ EDİLƏN HİSSƏ (TRY-CATCH və ERROR DIALOG) ---
+  }
+
+  // // --- ƏSAS DÜZƏLİŞ EDİLƏN HİSSƏ (TRY-CATCH və ERROR DIALOG) ---
+  // Future<void> _saveSharedDebt() async {
+  //   // 1. ID yoxlanışı
+  //   if (_counterpartyIdController.text.isEmpty) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(content: Text("Qarşı tərəfin ID-si daxil edilməyib"), backgroundColor: Colors.red),
+  //     );
+  //     return;
+  //   }
+  //
+  //   try {
+  //     // 2. Məbləği təmizləyib (vergülü nöqtəyə çevirib) parse edirik
+  //     String cleanAmountString = _debtAmountController.text.replaceAll(',', '.').trim();
+  //     double parsedAmount = double.parse(cleanAmountString);
+  //
+  //     final request = SharedDebtRequest(
+  //       counterpartyDebtId: _counterpartyIdController.text.trim(),
+  //       // Backend qarşı tərəfin adını özü tapır
+  //       debtorName: "",
+  //       debtAmount: parsedAmount,
+  //       description: _selectedPersonalDebtType,
+  //       notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+  //       isFlexibleDueDate: _isFlexible,
+  //       dueYear: _isFlexible ? null : _selectedYear,
+  //       dueMonth: _isFlexible ? null : _selectedMonth,
+  //     );
+  //
+  //     // 3. Serialization Check (Model xətası varsa burda tutaq)
+  //     try {
+  //       request.toJson();
+  //     } catch (e) {
+  //       throw Exception("Model JSON-a çevrilə bilmədi (ProGuard/Minify Xətası): $e");
+  //     }
+  //
+  //     // Servisə sorğu göndər
+  //     await _sharedDebtService.createSharedDebtRequest(context, request);
+  //
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
+  //       );
+  //       Navigator.of(context).pop(true);
+  //     }
+  //
+  //   } catch (e, stacktrace) {
+  //     // --- XƏTANI EKRANA ÇIXARAN HİSSƏ ---
+  //     print("SharedDebt Xəta: $e"); // Debug log üçün
+  //
+  //     if (mounted) {
+  //       showDialog(
+  //         context: context,
+  //         builder: (context) => AlertDialog(
+  //           title: const Text("Xəta Baş Verdi"),
+  //           content: SingleChildScrollView(
+  //             child: SelectableText(
+  //                 "Səbəb: $e\n\nStack: $stacktrace"),
+  //           ),
+  //           actions: [
+  //             TextButton(
+  //               onPressed: () => Navigator.pop(context),
+  //               child: const Text("Bağla"),
+  //             ),
+  //           ],
+  //         ),
+  //       );
+  //     }
+  //   }
+  // }
+
   Future<void> _saveSharedDebt() async {
-    // 1. ID yoxlanışı
-    if (_counterpartyIdController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Qarşı tərəfin ID-si daxil edilməyib"), backgroundColor: Colors.red),
-      );
-      return;
-    }
-
-    try {
-      // 2. Məbləği təmizləyib (vergülü nöqtəyə çevirib) parse edirik
-      String cleanAmountString = _debtAmountController.text.replaceAll(',', '.').trim();
-      double parsedAmount = double.parse(cleanAmountString);
-
-      final request = SharedDebtRequest(
-        counterpartyDebtId: _counterpartyIdController.text.trim(),
-        // Backend qarşı tərəfin adını özü tapır
-        debtorName: "",
-        debtAmount: parsedAmount,
-        description: _selectedPersonalDebtType,
-        notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-        isFlexibleDueDate: _isFlexible,
-        dueYear: _isFlexible ? null : _selectedYear,
-        dueMonth: _isFlexible ? null : _selectedMonth,
-      );
-
-      // 3. Serialization Check (Model xətası varsa burda tutaq)
-      try {
-        request.toJson();
-      } catch (e) {
-        throw Exception("Model JSON-a çevrilə bilmədi (ProGuard/Minify Xətası): $e");
-      }
-
-      // Servisə sorğu göndər
-      await _sharedDebtService.createSharedDebtRequest(context, request);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
-        );
-        Navigator.of(context).pop(true);
-      }
-
-    } catch (e, stacktrace) {
-      // --- XƏTANI EKRANA ÇIXARAN HİSSƏ ---
-      print("SharedDebt Xəta: $e"); // Debug log üçün
-
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("Xəta Baş Verdi"),
-            content: SingleChildScrollView(
-              child: SelectableText(
-                  "Səbəb: $e\n\nStack: $stacktrace"),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Bağla"),
-              ),
-            ],
-          ),
-        );
-      }
-    }
+  // 1. ID yoxlanışı
+  if (_counterpartyIdController.text.isEmpty) {
+  ScaffoldMessenger.of(context).showSnackBar(
+  const SnackBar(content: Text("Qarşı tərəfin ID-si daxil edilməyib"), backgroundColor: Colors.red),
+  );
+  return;
   }
+
+  try {
+  setState(() => _isSaving = true); // Yüklənməni başlat
+
+  // 2. Məbləği təmizləyib parse edirik
+  String cleanAmountString = _debtAmountController.text.replaceAll(',', '.').trim();
+  double parsedAmount = double.parse(cleanAmountString);
+
+  final request = SharedDebtRequest(
+  counterpartyDebtId: _counterpartyIdController.text.trim(),
+  debtorName: "",
+  debtAmount: parsedAmount,
+  description: _selectedPersonalDebtType,
+  notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+  isFlexibleDueDate: _isFlexible,
+  dueYear: _isFlexible ? null : _selectedYear,
+  dueMonth: _isFlexible ? null : _selectedMonth,
+  );
+
+  // Servisə sorğu göndər
+  await _sharedDebtService.createSharedDebtRequest(context, request);
+
+  if (mounted) {
+  ScaffoldMessenger.of(context).showSnackBar(
+  const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
+  );
+  Navigator.of(context).pop(true);
+  }
+
+  } catch (e) {
+  // --- ƏSAS XƏTA TUTAN HİSSƏ BURADIR ---
+  String errorStr = e.toString();
+  debugPrint("SharedDebt Xəta: $errorStr");
+
+  if (mounted) {
+  setState(() => _isSaving = false); // Yüklənməni dayandır
+
+  // LİMİT YOXLAMASI: Backend-dən gələn mesajda bu sözlər varsa dialoqu göstər
+  if (errorStr.contains("Limitiniz dolub") || errorStr.contains("maksimal borc limitinə")) {
+  _showPremiumLimitDialog(errorStr);
+  } else {
+  // Digər xətalar (ID səhvdir, internet yoxdur və s.) üçün standart dialoq
+  showDialog(
+  context: context,
+  builder: (context) => AlertDialog(
+  title: const Text("Xəta Baş Verdi"),
+  content: Text(errorStr.replaceFirst("Exception: ", "")), // "Exception: " sözünü təmizləyirik
+  actions: [
+  TextButton(
+  onPressed: () => Navigator.pop(context),
+  child: const Text("Bağla"),
+  ),
+  ],
+  ),
+  );
+  }
+  }
+  } finally {
+  if (mounted) setState(() => _isSaving = false);
+  }
+  }
+
+
+
+
+
+
+
+
 
   @override
   void dispose() {
@@ -442,4 +541,48 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
       ),
     );
   }
+
+
+  void _showPremiumLimitDialog(String message) {
+  showDialog(
+  context: context,
+  barrierDismissible: false,
+  builder: (context) => AlertDialog(
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  title: const Row(
+  children: [
+  Icon(Icons.workspace_premium, color: Colors.amber, size: 28),
+  SizedBox(width: 10),
+  Text('Limit Doldu!', style: TextStyle(fontWeight: FontWeight.bold)),
+  ],
+  ),
+  content: Text(message, style: const TextStyle(fontSize: 16)),
+  actions: [
+  TextButton(
+  onPressed: () => Navigator.pop(context),
+  child: const Text('Bağla', style: TextStyle(color: Colors.grey, fontSize: 16)),
+  ),
+  ElevatedButton(
+  style: ElevatedButton.styleFrom(
+  backgroundColor: const Color(0xFF6A1B9A),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+  ),
+  onPressed: () {
+  Navigator.pop(context);
+  // Burada Premium səhifəsinə keçid edəcəyik
+  Navigator.push(
+  context,
+  MaterialPageRoute(builder: (context) => const PremiumScreen()),
+  );
+  },
+  child: const Text('Premium-a Bax', style: TextStyle(color: Colors.white, fontSize: 16)),
+  ),
+  ],
+  ),
+  );
+  }
+
+
+
 }

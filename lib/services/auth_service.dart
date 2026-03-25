@@ -136,4 +136,63 @@ class AuthService {
   Future<String?> getUserUniqueId() async {
     return await _secureStorage.read(key: 'user_id');
   }
+
+
+  // --- ABUNƏLİK ÜÇÜN ƏLAVƏLƏR ---
+
+  // 1. İstifadəçinin premium statusunu backend-dən soruşur
+  Future<bool> isUserPremium() async {
+    try {
+      final token = await getJwtToken();
+      if (token == null) return false;
+
+      final response = await http.get(
+        // Bura dəyişdi! Bizim yazdığımız endpoint budur:
+        Uri.parse('$_baseUrl/api/subscription/status'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        // Bizim backend birbaşa true/false qaytarır (boolean)
+        return response.body == 'true';
+      }
+      return false;
+    } catch (e) {
+      print("Premium yoxlama xətası: $e");
+      return false;
+    }
+  }
+
+  // Google-dan gələn ödəniş məlumatını backend-ə təsdiq üçün göndərir
+  Future<bool> sendPurchaseToBackend(String serverVerificationData) async {
+    try {
+      final token = await getJwtToken();
+      if (token == null) return false;
+
+      final response = await http.post(
+        // Sənin Controller-dəki mapping: /api/subscription/verify
+        Uri.parse('$_baseUrl/api/subscription/verify'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'purchaseToken': serverVerificationData,
+          'subscriptionId': 'monthly_limit_100', // Google Play-dəki Product ID
+        }),
+      );
+
+      print("Backend Cavabı: ${response.statusCode} - ${response.body}");
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Backend ödəniş təsdiqi xətası: $e");
+      return false;
+    }
+  }
+
+
+
 }
