@@ -156,11 +156,6 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
       );
       Navigator.of(context).pop(true);
 
-      //else if (mounted) {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     SnackBar(content: Text(result['message'] ?? "Bilinməyən xəta"), backgroundColor: Colors.red),
-      //   );
-      // }
 
       // AddDebtScreen.dart içində _savePersonalDebt metodu
     } else if (mounted) {
@@ -168,9 +163,13 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
   print("Backend-den gelen xeta: $errorMsg");
 
   // Şərti daha geniş qoyuruq ki, mesajın istənilən yerində bu sözlər olsa tutsun
-  if (errorMsg.contains("15") && errorMsg.contains("limit")) {
-  print("Limit xətası aşkar edildi, dialoq açılır...");
-  _showPremiumLimitDialog(errorMsg);
+  // if (errorMsg.contains("15") && errorMsg.contains("limit")) {
+  // print("Limit xətası aşkar edildi, dialoq açılır...");
+  // _showPremiumLimitDialog(errorMsg);
+  // }
+  if (errorMsg.toLowerCase().contains("limit") || errorMsg.contains("çatmısınız")) {
+    print("Limit xətası aşkar edildi, dialoq açılır...");
+    _showPremiumLimitDialog(errorMsg);
   } else {
   print("Başqa bir xəta baş verdi.");
   ScaffoldMessenger.of(context).showSnackBar(
@@ -181,74 +180,7 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
 
   }
 
-  // // --- ƏSAS DÜZƏLİŞ EDİLƏN HİSSƏ (TRY-CATCH və ERROR DIALOG) ---
-  // Future<void> _saveSharedDebt() async {
-  //   // 1. ID yoxlanışı
-  //   if (_counterpartyIdController.text.isEmpty) {
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(content: Text("Qarşı tərəfin ID-si daxil edilməyib"), backgroundColor: Colors.red),
-  //     );
-  //     return;
-  //   }
-  //
-  //   try {
-  //     // 2. Məbləği təmizləyib (vergülü nöqtəyə çevirib) parse edirik
-  //     String cleanAmountString = _debtAmountController.text.replaceAll(',', '.').trim();
-  //     double parsedAmount = double.parse(cleanAmountString);
-  //
-  //     final request = SharedDebtRequest(
-  //       counterpartyDebtId: _counterpartyIdController.text.trim(),
-  //       // Backend qarşı tərəfin adını özü tapır
-  //       debtorName: "",
-  //       debtAmount: parsedAmount,
-  //       description: _selectedPersonalDebtType,
-  //       notes: _notesController.text.isNotEmpty ? _notesController.text : null,
-  //       isFlexibleDueDate: _isFlexible,
-  //       dueYear: _isFlexible ? null : _selectedYear,
-  //       dueMonth: _isFlexible ? null : _selectedMonth,
-  //     );
-  //
-  //     // 3. Serialization Check (Model xətası varsa burda tutaq)
-  //     try {
-  //       request.toJson();
-  //     } catch (e) {
-  //       throw Exception("Model JSON-a çevrilə bilmədi (ProGuard/Minify Xətası): $e");
-  //     }
-  //
-  //     // Servisə sorğu göndər
-  //     await _sharedDebtService.createSharedDebtRequest(context, request);
-  //
-  //     if (mounted) {
-  //       ScaffoldMessenger.of(context).showSnackBar(
-  //         const SnackBar(content: Text("Sorğu uğurla göndərildi!"), backgroundColor: Colors.green),
-  //       );
-  //       Navigator.of(context).pop(true);
-  //     }
-  //
-  //   } catch (e, stacktrace) {
-  //     // --- XƏTANI EKRANA ÇIXARAN HİSSƏ ---
-  //     print("SharedDebt Xəta: $e"); // Debug log üçün
-  //
-  //     if (mounted) {
-  //       showDialog(
-  //         context: context,
-  //         builder: (context) => AlertDialog(
-  //           title: const Text("Xəta Baş Verdi"),
-  //           content: SingleChildScrollView(
-  //             child: SelectableText(
-  //                 "Səbəb: $e\n\nStack: $stacktrace"),
-  //           ),
-  //           actions: [
-  //             TextButton(
-  //               onPressed: () => Navigator.pop(context),
-  //               child: const Text("Bağla"),
-  //             ),
-  //           ],
-  //         ),
-  //       );
-  //     }
-  //   }
-  // }
+
 
   Future<void> _saveSharedDebt() async {
   // 1. ID yoxlanışı
@@ -296,8 +228,11 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
   setState(() => _isSaving = false); // Yüklənməni dayandır
 
   // LİMİT YOXLAMASI: Backend-dən gələn mesajda bu sözlər varsa dialoqu göstər
-  if (errorStr.contains("Limitiniz dolub") || errorStr.contains("maksimal borc limitinə")) {
-  _showPremiumLimitDialog(errorStr);
+  // if (errorStr.contains("Limitiniz dolub") || errorStr.contains("maksimal borc limitinə")) {
+  // _showPremiumLimitDialog(errorStr);
+  // }
+  if (errorStr.toLowerCase().contains("limit") || errorStr.contains("çatmısınız")) {
+    _showPremiumLimitDialog(errorStr);
   } else {
   // Digər xətalar (ID səhvdir, internet yoxdur və s.) üçün standart dialoq
   showDialog(
