@@ -12,6 +12,7 @@ import 'package:borc_defteri/screens/debt_details_screen.dart';
 import 'package:borc_defteri/screens/add_debt_screen.dart';
 import 'package:borc_defteri/screens/login_page.dart';
 import 'package:borc_defteri/services/auth_service.dart';
+import 'package:borc_defteri/services/biometric_service.dart';
 
 // --- YENİ IMPORTLAR ---
 import 'package:audioplayers/audioplayers.dart';
@@ -44,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _myDebtId;
 
   // Bildiriş üçün Timer
-  Timer? _notificationTimer;
+ // Timer? _notificationTimer;
 
   // Səs oynadan
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -60,19 +61,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
-    _notificationTimer?.cancel();
+  //  _notificationTimer?.cancel();
     _audioPlayer.dispose();
     super.dispose();
   }
 
-  void _startNotificationTimer() {
-    _notificationTimer?.cancel();
-    _notificationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (mounted && !_isSearching) {
-        _checkPendingRequestsBackground();
-      }
-    });
-  }
+  // void _startNotificationTimer() {
+  //   _notificationTimer?.cancel();
+  //   _notificationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+  //     if (mounted && !_isSearching) {
+  //       _checkPendingRequestsBackground();
+  //     }
+  //   });
+  // }
 
   Future<void> _checkPendingRequestsBackground() async {
     try {
@@ -112,6 +113,68 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint("Səs/Vibrasiya xətası: $e");
     }
   }
+
+  // Biometriya / Barmaq izi parametrləri dialoqu
+  void _showBiometricSettingsDialog() async {
+    final BiometricService biometricService = BiometricService();
+    bool isAvailable = await biometricService.isBiometricAvailable();
+
+    if (!isAvailable && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cihazınızda biometrik doğrulama / PIN dəstəklənmir!')),
+      );
+      return;
+    }
+
+    bool isCurrentlyEnabled = await biometricService.isBiometricEnabled();
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        bool switchValue = isCurrentlyEnabled;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Təhlükəsizlik'),
+              content: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Tətbiqə girişdə barmaq izi / şifrə tələb olunsun',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  Switch(
+                    value: switchValue,
+                    activeColor: const Color(0xFF6A1B9A),
+                    onChanged: (bool value) async {
+                      bool success = await biometricService.toggleBiometric(value);
+                      setDialogState(() {
+                        switchValue = value ? success : false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Bağla'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+
+
   // ----------------------------------------
 
   Future<void> _launchEmailApp() async {
@@ -148,7 +211,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // İlk yükləmədə sayğacı bərabərləşdiririk ki, ilk açılışda səs çıxmasın
       _lastKnownCount = _pendingRequestsCount;
-      _startNotificationTimer();
+    //  _startNotificationTimer();
     }
   }
 
@@ -384,6 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.filter_list, color: Colors.white),
             onSelected: (value) {
               if (value == 'contact_us') { _launchEmailApp(); return; }
+              if (value == 'biometric') { _showBiometricSettingsDialog(); return; }
               if (value == 'by_month') { _showMonthFilterDialog(); return; }
               setState(() => _currentFilterType = value);
               if (value == 'all') { _loadDebts(); } else { _loadFilteredDebts(); }
@@ -395,6 +459,17 @@ class _HomeScreenState extends State<HomeScreen> {
               const PopupMenuItem<String>(value: 'debts_to_me', child: Text('Mənə Olan Borclar')),
               const PopupMenuItem<String>(value: 'flexible', child: Text('"Pulum Olanda"')),
               const PopupMenuItem<String>(value: 'by_month', child: Text('İl/Ay üzrə...')),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'biometric',
+                child: Row(
+                  children: [
+                    Icon(Icons.fingerprint, color: Color(0xFF6A1B9A)),
+                    SizedBox(width: 8),
+                    Text('Barmaq İzi / Şifrə'),
+                  ],
+                ),
+              ),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(value: 'contact_us', child: Row(children: [Icon(Icons.email_outlined, color: Colors.black54), SizedBox(width: 8), Text('Bizimlə Əlaqə')])),
             ],
@@ -471,23 +546,47 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            // Expanded(
+            //   child: _isLoading
+            //       ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
+            //       : _unifiedDebts.isEmpty
+            //       ? const Center(child: Text("Heç bir borc tapılmadı.", style: TextStyle(color: Colors.black54, fontSize: 16)))
+            //       : ListView.builder(
+            //     itemCount: _unifiedDebts.length,
+            //     itemBuilder: (context, index) {
+            //       final item = _unifiedDebts[index];
+            //       if (item.type == DebtType.personal) {
+            //         return _buildPersonalDebtCard(item);
+            //       } else {
+            //         return _buildSharedDebtCard(item);
+            //       }
+            //     },
+            //   ),
+            // ),
+
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
                   : _unifiedDebts.isEmpty
                   ? const Center(child: Text("Heç bir borc tapılmadı.", style: TextStyle(color: Colors.black54, fontSize: 16)))
-                  : ListView.builder(
-                itemCount: _unifiedDebts.length,
-                itemBuilder: (context, index) {
-                  final item = _unifiedDebts[index];
-                  if (item.type == DebtType.personal) {
-                    return _buildPersonalDebtCard(item);
-                  } else {
-                    return _buildSharedDebtCard(item);
-                  }
-                },
+                  : RefreshIndicator(
+                color: const Color(0xFF6A1B9A),
+                onRefresh: _loadDebts,
+                child: ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: _unifiedDebts.length,
+                  itemBuilder: (context, index) {
+                    final item = _unifiedDebts[index];
+                    if (item.type == DebtType.personal) {
+                      return _buildPersonalDebtCard(item);
+                    } else {
+                      return _buildSharedDebtCard(item);
+                    }
+                  },
+                ),
               ),
             ),
+
           ],
         ),
       ),
