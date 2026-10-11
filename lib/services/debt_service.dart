@@ -6,6 +6,8 @@ import '../models/debt.dart';
 import '../models/debt_request.dart';
 import '../models/debt_history.dart';
 import 'api_service.dart';
+import 'package:intl/intl.dart';
+import '../models/debt_summary.dart';
 
 class DebtService {
   final String _endpoint = "/api/v1/debts";
@@ -155,6 +157,26 @@ class DebtService {
     } catch (e) {
       print("deleteDebt xətası: $e");
       return false;
+    }
+  }
+
+  // Yaradılma tarixinə görə xülasə. Tarix verilməsə hamısı gəlir.
+  Future<DebtSummary> getDebtSummary(BuildContext context,
+      {DateTime? startDate, DateTime? endDate}) async {
+    String url = '$_endpoint/summary';
+    if (startDate != null && endDate != null) {
+      final f = DateFormat('yyyy-MM-dd');
+      url += '?startDate=${f.format(startDate)}&endDate=${f.format(endDate)}';
+    }
+    try {
+      final response = await ApiService.get(context, url);
+      if (response.statusCode == 200) {
+        return DebtSummary.fromJson(json.decode(utf8.decode(response.bodyBytes)));
+      }
+      throw Exception('Server xətası: ${response.statusCode}');
+    } catch (e) {
+      print("getDebtSummary xətası: $e");
+      throw Exception('Məlumatları yükləmək alınmadı.');
     }
   }
 }

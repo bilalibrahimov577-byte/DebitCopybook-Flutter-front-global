@@ -13,6 +13,7 @@ import 'package:borc_defteri/screens/add_debt_screen.dart';
 import 'package:borc_defteri/screens/login_page.dart';
 import 'package:borc_defteri/services/auth_service.dart';
 import 'package:borc_defteri/services/biometric_service.dart';
+import 'package:borc_defteri/screens/debt_summary_screen.dart';
 
 // --- YENİ IMPORTLAR ---
 import 'package:audioplayers/audioplayers.dart';
@@ -449,6 +450,11 @@ class _HomeScreenState extends State<HomeScreen> {
               if (value == 'contact_us') { _launchEmailApp(); return; }
               if (value == 'biometric') { _showBiometricSettingsDialog(); return; }
               if (value == 'by_month') { _showMonthFilterDialog(); return; }
+              if (value == 'date_summary') {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const DebtSummaryScreen()))
+                    .then((changed) { if (changed == true) _loadDebts(); });
+                return;
+              }
               setState(() => _currentFilterType = value);
               if (value == 'all') { _loadDebts(); } else { _loadFilteredDebts(); }
             },
@@ -459,6 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const PopupMenuItem<String>(value: 'debts_to_me', child: Text('Mənə Olan Borclar')),
               const PopupMenuItem<String>(value: 'flexible', child: Text('"Pulum Olanda"')),
               const PopupMenuItem<String>(value: 'by_month', child: Text('İl/Ay üzrə...')),
+              const PopupMenuItem<String>(value: 'date_summary', child: Text('Tarixə görə xülasə')),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'biometric',
@@ -493,6 +500,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }),
       ]);
     });
+  }
+
+  // 123.5 -> "123.50₼", 4000 -> "4000₼"
+  String _formatMoney(double value) {
+    final hasQepik = ((value * 100).round() % 100) != 0;
+    return '${hasQepik ? value.toStringAsFixed(2) : value.toStringAsFixed(0)}₼';
   }
 
   void _navigateToAddDebtScreen() async {
@@ -546,23 +559,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            // Expanded(
-            //   child: _isLoading
-            //       ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
-            //       : _unifiedDebts.isEmpty
-            //       ? const Center(child: Text("Heç bir borc tapılmadı.", style: TextStyle(color: Colors.black54, fontSize: 16)))
-            //       : ListView.builder(
-            //     itemCount: _unifiedDebts.length,
-            //     itemBuilder: (context, index) {
-            //       final item = _unifiedDebts[index];
-            //       if (item.type == DebtType.personal) {
-            //         return _buildPersonalDebtCard(item);
-            //       } else {
-            //         return _buildSharedDebtCard(item);
-            //       }
-            //     },
-            //   ),
-            // ),
 
             Expanded(
               child: _isLoading
@@ -633,19 +629,39 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                      color: const Color(0xFFAB47BC),
-                      borderRadius: BorderRadius.circular(10)),
-                  child: Center(
-                      child: Text('${debt.debtAmount.toInt()}₼',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16))),
+                // Container(
+                //   width: 50,
+                //   height: 50,
+                //   decoration: BoxDecoration(
+                //       color: const Color(0xFFAB47BC),
+                //       borderRadius: BorderRadius.circular(10)),
+                //   child: Center(
+                //       child: Text('${debt.debtAmount.toInt()}₼',
+                //           style: const TextStyle(
+                //               color: Colors.white,
+                //               fontWeight: FontWeight.bold,
+                //               fontSize: 16))),
+
+              Container(
+              width: 84,
+              height: 50,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                  color: const Color(0xFFAB47BC),
+                  borderRadius: BorderRadius.circular(10)),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(_formatMoney(debt.debtAmount),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16)),
                 ),
+              ),
+            ),
+
+
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -721,11 +737,25 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
+                // Container(
+                //   width: 50, height: 50,
+                //   decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(10)),
+                //   child: Center(child: Text('${debt.debtAmount.toInt()}₼', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
+                // ),
+
                 Container(
-                  width: 50, height: 50,
+                  width: 84,
+                  height: 50,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(10)),
-                  child: Center(child: Text('${debt.debtAmount.toInt()}₼', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16))),
+                  child: Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(_formatMoney(debt.debtAmount), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    ),
+                  ),
                 ),
+
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
