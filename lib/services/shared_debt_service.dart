@@ -15,7 +15,8 @@ class SharedDebtService {
     try {
       final response = await ApiService.get(context, '$_endpoint/requests/incoming');
       if (response.statusCode == 200) {
-        return sharedDebtListFromJson(response.body);
+       // return sharedDebtListFromJson(response.body);
+        return _onlyActive(sharedDebtListFromJson(response.body));
       }
       return [];
     } catch (e) {
@@ -29,7 +30,8 @@ class SharedDebtService {
     try {
       final response = await ApiService.get(context, '$_endpoint/requests/outgoing');
       if (response.statusCode == 200) {
-        return sharedDebtListFromJson(response.body);
+        //return sharedDebtListFromJson(response.body);
+        return _onlyActive(sharedDebtListFromJson(response.body));
       }
       return [];
     } catch (e) {
@@ -138,7 +140,8 @@ class SharedDebtService {
     try {
       final response = await ApiService.get(context, '$_endpoint/proposals/incoming');
       if (response.statusCode == 200) {
-        return proposalListFromJson(jsonDecode(response.body));
+        //return proposalListFromJson(jsonDecode(response.body));
+        return _onlyActiveProposals(proposalListFromJson(jsonDecode(response.body)));
       }
       return [];
     } catch (e) {
@@ -152,12 +155,27 @@ class SharedDebtService {
     try {
       final response = await ApiService.get(context, '$_endpoint/proposals/outgoing');
       if (response.statusCode == 200) {
-        return proposalListFromJson(jsonDecode(response.body));
+        //return proposalListFromJson(jsonDecode(response.body));
+        return _onlyActiveProposals(proposalListFromJson(jsonDecode(response.body)));
       }
       return [];
     } catch (e) {
       debugPrint("getOutgoingProposals xətası: $e");
       return [];
     }
+  }
+
+  List<SharedDebt> _onlyActive(List<SharedDebt> list) {
+    final now = DateTime.now();
+    return list
+        .where((r) => r.requestExpiryTime != null && r.requestExpiryTime!.isAfter(now))
+        .toList();
+  }
+
+  List<ProposalResponse> _onlyActiveProposals(List<ProposalResponse> list) {
+    final now = DateTime.now();
+    return list
+        .where((p) => p.requestExpiryTime == null || p.requestExpiryTime!.isAfter(now))
+        .toList();
   }
 }
