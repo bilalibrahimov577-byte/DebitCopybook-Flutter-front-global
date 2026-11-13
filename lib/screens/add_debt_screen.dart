@@ -9,9 +9,11 @@ import 'package:flutter/services.dart';
 import '../models/debt.dart';
 import '../models/debt_request.dart';
 import '../services/debt_service.dart';
+import '../services/recurring_debt_service.dart';
 
 // Borc yaratma növünü müəyyən etmək üçün enum
-enum DebtCreationType { personal, shared }
+//enum DebtCreationType { personal, shared }
+enum DebtCreationType { personal, shared, recurring }
 
 class AddDebtScreen extends StatefulWidget {
   final Debt? existingDebt;
@@ -32,6 +34,9 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
 
   // Qarşılıqlı borc üçün Controller
   final _counterpartyIdController = TextEditingController();
+  final _installmentController = TextEditingController();
+  int? _selectedDueDay;
+  final _recurringDebtService = RecurringDebtService();
 
   // Formanın vəziyyətini idarə edən dəyişənlər
   bool _isSaving = false;
@@ -100,7 +105,9 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     }
 
     // Tarix yoxlaması
-    if (!_isFlexible && (_selectedYear == null || _selectedMonth == null)) {
+  //  if (!_isFlexible && (_selectedYear == null || _selectedMonth == null)) {
+    if (_creationType != DebtCreationType.recurring &&
+        !_isFlexible && (_selectedYear == null || _selectedMonth == null)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Zəhmət olmasa, qaytarılma tarixini tam seçin.')));
       return;
@@ -109,8 +116,16 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // if (_creationType == DebtCreationType.personal) {
+      //   await _savePersonalDebt();
+      // } else {
+      //   await _saveSharedDebt();
+      // }
+
       if (_creationType == DebtCreationType.personal) {
         await _savePersonalDebt();
+      } else if (_creationType == DebtCreationType.recurring) {
+        await _saveRecurringDebt();
       } else {
         await _saveSharedDebt();
       }
@@ -180,7 +195,129 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
 
   }
 
+  double? _parseMoney(String s) => double.tryParse(s.replaceAll(',', '.').trim());
 
+// Qəpiklə hesablayırıq ki, double xətası olmasın
+  int? _periodsFor(double total, double inst) {
+    final totalC = (total * 100).round();
+    final instC = (inst * 100).round();
+    if (totalC <= 0 || instC <= 0 || instC > totalC) return null;
+    return (totalC + instC - 1) ~/ instC;
+  }
+
+  String _centsText(int cents) => cents % 100 == 0
+      ? '${cents ~/ 100} ₼'
+      : '${(cents / 100).toStringAsFixed(2)} ₼';
+
+  String? _buildInstallmentPreview() {
+    final total = _parseMoney(_debtAmountController.text);
+    final inst = _parseMoney(_installmentController.text);
+    if (total == null || inst == null) return null;
+    final periods = _periodsFor(total, inst);
+    if (periods == null) return null;
+    final totalC = (total * 100).round();
+    final instC = (inst * 100).round();
+    final lastC = totalC - instC * (periods - 1);
+    if (periods == 1) return '1 ödəniş: ${_centsText(totalC)}';
+    if (lastC == instC) return '$periods ödəniş × ${_centsText(instC)}';
+    return '${periods - 1} ödəniş × ${_centsText(instC)} + sonuncu ${_centsText(lastC)} (cəmi $periods ödəniş)';
+  }
+
+  String? _validateInstallment(String? value) {
+    if (value == null || value.isEmpty) return 'Bu xana boş buraxıla bilməz';
+    final inst = _parseMoney(value);
+    if (inst == null || inst <= 0) return 'Məbləğ sıfırdan böyük olmalıdır';
+    final total = _parseMoney(_debtAmountController.text);
+    if (total != null) {
+      if ((inst * 100).round() > (total * 100).round()) {
+        return 'Hissə ümumi məbləğdən çox ola bilməz';
+      }
+      final periods = _periodsFor(total, inst);
+      if (periods != null && periods > 360) {
+        return 'Ödəniş sayı çox böyükdür (maksimum 360)';
+      }
+    }
+    return null;
+  }
+
+  Future<void> _saveRecurringDebt() async {
+    final total = _parseMoney(_debtAmountController.text)!;
+    final inst = _parseMoney(_installmentController.text)!;
+
+    final result = await _recurringDebtService.create(
+      context,
+      debtorName: _debtorNameController.text.trim(),
+      direction: _selectedPersonalDebtType!,
+      totalAmount: total,
+      installmentAmount: inst,
+      dueDay: _selectedDueDay!,
+      notes: _notesController.text.isNotEmpty ? _notesController.text : null,
+    );
+
+    if (!mounted) return;
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Təkrarlanan borc uğurla yaradıldı!'),
+            backgroundColor: Colors.green),
+      );
+      Navigator.of(context).pop(true);
+    } else {
+      final errorMsg = (result['message'] ?? '').toString();
+      if (errorMsg.toLowerCase().contains('limit') || errorMsg.contains('çatmısınız')) {
+        _showPremiumLimitDialog(errorMsg);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Widget _buildRecurringFields() {
+    final preview = _buildInstallmentPreview();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: _installmentController,
+          decoration: _inputDecoration('Hər ödənişin məbləği (₼)'),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+[\.,]?\d{0,2}'))],
+          onChanged: (_) => setState(() {}),
+          validator: _validateInstallment,
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<int>(
+          value: _selectedDueDay,
+          decoration: _inputDecoration('Ödəniş günü (hər ay)'),
+          hint: const Text('Ayın neçənci günü?'),
+          items: List.generate(
+              28, (i) => DropdownMenuItem<int>(value: i + 1, child: Text('${i + 1}'))),
+          onChanged: (v) => setState(() => _selectedDueDay = v),
+          validator: (v) => v == null ? 'Ödəniş gününü seçin' : null,
+        ),
+        if (preview != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6A1B9A).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(preview,
+                style: const TextStyle(
+                    color: Color(0xFF6A1B9A), fontWeight: FontWeight.w600)),
+          ),
+        ],
+        const SizedBox(height: 8),
+        const Text(
+            'Ödəniş günü gələndə borc sarı olur. Ödənilməsə növbəti gün qırmızı olur.',
+            style: TextStyle(fontSize: 12, color: Colors.black54)),
+      ],
+    );
+  }
 
   Future<void> _saveSharedDebt() async {
   // 1. ID yoxlanışı
@@ -291,10 +428,18 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                 // Redaktə rejimində növü dəyişməyə icazə vermirik
                 if (!_isEditMode) ...[
                   SegmentedButton<DebtCreationType>(
+                    // segments: const <ButtonSegment<DebtCreationType>>[
+                    //   ButtonSegment(value: DebtCreationType.personal, label: Text('Fərdi'), icon: Icon(Icons.person)),
+                    //   ButtonSegment(value: DebtCreationType.shared, label: Text('Qarşılıqlı'), icon: Icon(Icons.people)),
+                    // ],
+
                     segments: const <ButtonSegment<DebtCreationType>>[
-                      ButtonSegment(value: DebtCreationType.personal, label: Text('Fərdi'), icon: Icon(Icons.person)),
-                      ButtonSegment(value: DebtCreationType.shared, label: Text('Qarşılıqlı'), icon: Icon(Icons.people)),
+                      ButtonSegment(value: DebtCreationType.personal, label: Text('Fərdi')),
+                      ButtonSegment(value: DebtCreationType.shared, label: Text('Qarşılıqlı')),
+                      ButtonSegment(value: DebtCreationType.recurring, label: Text('Təkrarlanan')),
                     ],
+                    showSelectedIcon: false,
+
                     selected: {_creationType},
                     onSelectionChanged: (Set<DebtCreationType> newSelection) {
                       setState(() {
@@ -330,18 +475,35 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
                 const SizedBox(height: 16),
 
                 // ID sahəsi yalnız Shared olanda görünür
-                if (_creationType == DebtCreationType.shared) ...[
+               //  if (_creationType == DebtCreationType.shared) ...[
+               // //   if (_creationType != DebtCreationType.shared && (value == null || value.isEmpty)) {
+               //    TextFormField(
+               //      controller: _counterpartyIdController,
+               //      decoration: _inputDecoration('Qarşı tərəfin Borc ID-si'),
+               //      validator: (value) {
+               //        if (_creationType == DebtCreationType.shared) {
+               //          if (value == null || value.isEmpty) {
+               //            return 'Borc ID-si boş buraxıla bilməz';
+               //          }
+               //          if (value == _myDebtId) {
+               //            return 'Öz ID-nizi daxil edə bilməzsiniz';
+               //          }
+               //        }
+               //        return null;
+               //      },
+               //    ),
+               //    const SizedBox(height: 16),
+               //  ],
+
+                // "Şəxsin adı" xanası Fərdi və Təkrarlanan üçün göstərilir
+                if (_creationType != DebtCreationType.shared) ...[
                   TextFormField(
-                    controller: _counterpartyIdController,
-                    decoration: _inputDecoration('Qarşı tərəfin Borc ID-si'),
+                    controller: _debtorNameController,
+                    decoration: _inputDecoration('Şəxsin adı'),
                     validator: (value) {
-                      if (_creationType == DebtCreationType.shared) {
-                        if (value == null || value.isEmpty) {
-                          return 'Borc ID-si boş buraxıla bilməz';
-                        }
-                        if (value == _myDebtId) {
-                          return 'Öz ID-nizi daxil edə bilməzsiniz';
-                        }
+                      if (_creationType != DebtCreationType.shared &&
+                          (value == null || value.trim().isEmpty)) {
+                        return 'Bu xana boş buraxıla bilməz';
                       }
                       return null;
                     },
@@ -351,14 +513,26 @@ class _AddDebtScreenState extends State<AddDebtScreen> {
 
                 TextFormField(
                   controller: _debtAmountController,
-                  decoration: _inputDecoration('Məbləğ (₼)'),
+                //  decoration: _inputDecoration('Məbləğ (₼)'),
+                  decoration: _inputDecoration(_creationType == DebtCreationType.recurring
+                      ? 'Ümumi məbləğ (₼)'
+                      : 'Məbləğ (₼)'),
+                  onChanged: (_) => setState(() {}),
+
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   // DÜZƏLİŞ: Regex həm vergül, həm nöqtə qəbul edir
                   inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+[\.,]?\d{0,2}'))],
                   validator: _validateAmount,
                 ),
+                // const SizedBox(height: 16),
+                // _buildDueDateSection(),
+                // const SizedBox(height: 16),
+
                 const SizedBox(height: 16),
-                _buildDueDateSection(),
+                if (_creationType == DebtCreationType.recurring)
+                  _buildRecurringFields()
+                else
+                  _buildDueDateSection(),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _notesController,

@@ -14,6 +14,7 @@ import 'package:borc_defteri/screens/login_page.dart';
 import 'package:borc_defteri/services/auth_service.dart';
 import 'package:borc_defteri/services/biometric_service.dart';
 import 'package:borc_defteri/screens/debt_summary_screen.dart';
+import 'package:borc_defteri/screens/completed_debts_screen.dart';
 
 // --- YENİ IMPORTLAR ---
 import 'package:audioplayers/audioplayers.dart';
@@ -21,6 +22,11 @@ import 'package:flutter/services.dart'; // HapticFeedback (Vibrasiya) üçün la
 // ---------------------
 
 import '../models/unified_debt_item.dart';
+
+import 'package:intl/intl.dart';
+import 'package:borc_defteri/models/recurring_debt.dart';
+import 'package:borc_defteri/services/recurring_debt_service.dart';
+import 'package:borc_defteri/screens/recurring_debt_details_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.title = 'Borc Dəftəri'});
@@ -36,6 +42,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final SharedDebtService _sharedDebtService = SharedDebtService();
   bool _isLoading = true;
   final DebtService _debtService = DebtService();
+
+  final RecurringDebtService _recurringDebtService = RecurringDebtService();
+  List<RecurringDebt> _recurringCache = []; // axtarış üçün (şəbəkəsiz)
+  bool _recurringLoadFailed = false;
+
   final AuthService _authService = AuthService();
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -67,14 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // void _startNotificationTimer() {
-  //   _notificationTimer?.cancel();
-  //   _notificationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-  //     if (mounted && !_isSearching) {
-  //       _checkPendingRequestsBackground();
-  //     }
-  //   });
-  // }
 
   Future<void> _checkPendingRequestsBackground() async {
     try {
@@ -216,6 +219,53 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Təkrarlanan borclar yüklənməsə, köhnə borclar yenə görünməlidir
+  // Future<List<RecurringDebt>> _loadRecurringSafely() async {
+  //   try {
+  //     final list = await _recurringDebtService.getAll(context);
+  //     _recurringCache = list;
+  //     if (mounted) setState(() => _recurringLoadFailed = false);
+  //     return list;
+  //   } catch (e) {
+  //     debugPrint('Təkrarlanan borclar xətası: $e');
+  //     if (mounted) setState(() => _recurringLoadFailed = true);
+  //     return [];
+  //   }
+  // }
+
+  Future<List<RecurringDebt>> _loadRecurringSafely() async {
+    try {
+      final all = await _recurringDebtService.getAll(context);
+      final active = all.where((d) => !d.isCompleted).toList();
+      _recurringCache = active;
+      if (mounted) setState(() => _recurringLoadFailed = false);
+      return active;
+    } catch (e) {
+      debugPrint('Təkrarlanan borclar xətası: $e');
+      if (mounted) setState(() => _recurringLoadFailed = true);
+      return [];
+    }
+  }
+
+// 0: gecikmiş, 1: bu gün ödənməli, 2: qalanlar, 3: tamamlanmış
+  int _rank(UnifiedDebtItem item) {
+    if (item.type != DebtType.recurring) return 2;
+    final r = item.data as RecurringDebt;
+    if (r.isOverdue) return 0;
+    if (r.isDueToday) return 1;
+    if (r.isCompleted) return 3;
+    return 2;
+  }
+
+  void _sortItems(List<UnifiedDebtItem> items) {
+    items.sort((a, b) {
+      final c = _rank(a).compareTo(_rank(b));
+      if (c != 0) return c;
+      return b.createdAt.compareTo(a.createdAt);
+    });
+  }
+
+
   Future<void> _loadDebts() async {
     if (_isSearching) return;
     setState(() {
@@ -232,17 +282,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final incomingRequests = await _sharedDebtService.getPendingRequestsForMe(context);
       final incomingProposals = await _sharedDebtService.getIncomingProposals(context);
+      final recurringDebts = await _loadRecurringSafely();
 
       List<UnifiedDebtItem> combinedList = [];
       combinedList.addAll(personalDebts.map((debt) => UnifiedDebtItem.fromPersonalDebt(debt)));
       combinedList.addAll(sharedDebts.map((debt) => UnifiedDebtItem.fromSharedDebt(debt)));
-      combinedList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      combinedList.addAll(recurringDebts.map((debt) => UnifiedDebtItem.fromRecurringDebt(debt)));
+      _sortItems(combinedList);
 
       if (mounted) {
         setState(() {
           _unifiedDebts = combinedList;
           _pendingRequestsCount = incomingRequests.length + incomingProposals.length;
-          _lastKnownCount = _pendingRequestsCount; // Burada da yeniləyirik
+          _lastKnownCount = _pendingRequestsCount;
           _activeFilterInfo = 'Bütün Borclar';
         });
       }
@@ -293,6 +345,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
       allSharedDebts = await _sharedDebtService.getConfirmedSharedDebts(context);
 
+
+      List<RecurringDebt> filteredRecurring = [];
+      if (_currentFilterType == 'my_debts' || _currentFilterType == 'debts_to_me') {
+        final allRecurring = await _loadRecurringSafely();
+        final dir = _currentFilterType == 'my_debts' ? 'mənim borcum' : 'mənə olan borclar';
+        filteredRecurring = allRecurring.where((r) => r.direction == dir).toList();
+      }
+
       switch (_currentFilterType) {
         case 'my_debts':
           filteredSharedDebts = allSharedDebts.where((s) {
@@ -331,7 +391,10 @@ class _HomeScreenState extends State<HomeScreen> {
       combinedList.addAll(personalDebts.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
       combinedList.addAll(filteredSharedDebts.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
 
-      combinedList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      combinedList.addAll(filteredRecurring.map((d) => UnifiedDebtItem.fromRecurringDebt(d)));
+
+     // combinedList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _sortItems(combinedList);
 
       if (mounted) {
         setState(() {
@@ -389,40 +452,59 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isSearching) {
       return AppBar(
         backgroundColor: const Color(0xFF6A1B9A),
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: _stopSearch),
+        leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: _stopSearch),
         title: TextField(
           controller: _searchController,
           autofocus: true,
           style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(hintText: 'Ad ilə axtar...', hintStyle: TextStyle(color: Colors.white70), border: InputBorder.none),
+          decoration: const InputDecoration(
+              hintText: 'Ad ilə axtar...',
+              hintStyle: TextStyle(color: Colors.white70),
+              border: InputBorder.none),
           onChanged: (value) async {
-            if(value.isEmpty) { _loadDebts(); return; }
+            if (value.isEmpty) {
+              _loadDebts();
+              return;
+            }
             setState(() => _isLoading = true);
 
             List<Debt> personalResults = await _debtService.searchDebtsByName(context, value);
             List<SharedDebt> allShared = await _sharedDebtService.getConfirmedSharedDebts(context);
+            final query = value.toLowerCase();
+
             List<SharedDebt> sharedResults = allShared.where((s) {
               final name1 = s.counterpartyUser.name.toLowerCase();
               final name2 = s.user.name.toLowerCase();
-              final query = value.toLowerCase();
               return name1.contains(query) || name2.contains(query);
             }).toList();
+
+            // YENİ: təkrarlanan borclar
+            final recurringResults = _recurringCache
+                .where((r) => r.debtorName.toLowerCase().contains(query))
+                .toList();
 
             List<UnifiedDebtItem> combinedList = [];
             combinedList.addAll(personalResults.map((d) => UnifiedDebtItem.fromPersonalDebt(d)));
             combinedList.addAll(sharedResults.map((d) => UnifiedDebtItem.fromSharedDebt(d)));
+            combinedList.addAll(recurringResults.map((d) => UnifiedDebtItem.fromRecurringDebt(d)));
+            _sortItems(combinedList);
 
             if (mounted) {
               setState(() {
                 _unifiedDebts = combinedList;
                 _isLoading = false;
-                _activeFilterInfo = value.isEmpty ? 'Bütün Borclar' : "'$value' üçün nəticələr";
+                _activeFilterInfo = "'$value' üçün nəticələr";
               });
             }
           },
         ),
       );
-    } else {
+    }
+
+
+    else {
       return AppBar(
         title: Text(widget.title, style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF6A1B9A),
@@ -450,11 +532,17 @@ class _HomeScreenState extends State<HomeScreen> {
               if (value == 'contact_us') { _launchEmailApp(); return; }
               if (value == 'biometric') { _showBiometricSettingsDialog(); return; }
               if (value == 'by_month') { _showMonthFilterDialog(); return; }
+              if (value == 'completed_debts') {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const CompletedDebtsScreen()))
+                    .then((changed) { if (changed == true) _loadDebts(); });
+                return;
+              }
               if (value == 'date_summary') {
                 Navigator.push(context, MaterialPageRoute(builder: (context) => const DebtSummaryScreen()))
                     .then((changed) { if (changed == true) _loadDebts(); });
                 return;
               }
+
               setState(() => _currentFilterType = value);
               if (value == 'all') { _loadDebts(); } else { _loadFilteredDebts(); }
             },
@@ -466,6 +554,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const PopupMenuItem<String>(value: 'flexible', child: Text('"Pulum Olanda"')),
               const PopupMenuItem<String>(value: 'by_month', child: Text('İl/Ay üzrə...')),
               const PopupMenuItem<String>(value: 'date_summary', child: Text('Tarixə görə xülasə')),
+              const PopupMenuItem<String>(value: 'completed_debts', child: Text('Ödənilmiş borclar')),
               const PopupMenuDivider(),
               const PopupMenuItem<String>(
                 value: 'biometric',
@@ -515,12 +604,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+
   void _navigateToDetailsScreen(UnifiedDebtItem item) async {
-    final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => DebtDetailsScreen(item: item)));
+    final Widget screen = item.type == DebtType.recurring
+        ? RecurringDebtDetailsScreen(debt: item.data as RecurringDebt)
+        : DebtDetailsScreen(item: item);
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => screen));
     if (result == true) {
       _loadDebts();
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -534,7 +628,9 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 12.0),
               color: const Color(0xFFE0E0E0),
-              child: Text('Göstərilir: $_activeFilterInfo', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF333333))),
+              child: Text('Göstərilir: $_activeFilterInfo',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF333333))),
             ),
             Container(
               width: double.infinity,
@@ -551,8 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: _userUniqueId != null ? const Color(0xFF6A1B9A) : Colors.grey,
-                            fontSize: 16
-                        ),
+                            fontSize: 16),
                       ),
                     ],
                   ),
@@ -560,11 +655,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
+            // YENİ: təkrarlanan borclar yüklənməyəndə xəbərdarlıq
+            if (_recurringLoadFailed)
+              Container(
+                width: double.infinity,
+                color: Colors.orange.shade100,
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+                child: const Text('Təkrarlanan borclar yüklənmədi. Yeniləyin.',
+                    textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
+              ),
+
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator(color: Color(0xFF6A1B9A)))
                   : _unifiedDebts.isEmpty
-                  ? const Center(child: Text("Heç bir borc tapılmadı.", style: TextStyle(color: Colors.black54, fontSize: 16)))
+                  ? const Center(
+                  child: Text("Heç bir borc tapılmadı.",
+                      style: TextStyle(color: Colors.black54, fontSize: 16)))
                   : RefreshIndicator(
                 color: const Color(0xFF6A1B9A),
                 onRefresh: _loadDebts,
@@ -575,14 +682,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     final item = _unifiedDebts[index];
                     if (item.type == DebtType.personal) {
                       return _buildPersonalDebtCard(item);
-                    } else {
-                      return _buildSharedDebtCard(item);
                     }
+                    if (item.type == DebtType.recurring) {
+                      return _buildRecurringDebtCard(item);
+                    }
+                    return _buildSharedDebtCard(item);
                   },
                 ),
               ),
             ),
-
           ],
         ),
       ),
@@ -629,18 +737,6 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                // Container(
-                //   width: 50,
-                //   height: 50,
-                //   decoration: BoxDecoration(
-                //       color: const Color(0xFFAB47BC),
-                //       borderRadius: BorderRadius.circular(10)),
-                //   child: Center(
-                //       child: Text('${debt.debtAmount.toInt()}₼',
-                //           style: const TextStyle(
-                //               color: Colors.white,
-                //               fontWeight: FontWeight.bold,
-                //               fontSize: 16))),
 
               Container(
               width: 84,
@@ -689,6 +785,102 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+Widget _buildRecurringDebtCard(UnifiedDebtItem item) {
+  final debt = item.data as RecurringDebt;
+
+  Color cardColor = Colors.white;
+  String statusText;
+  if (debt.isCompleted) {
+    cardColor = Colors.grey.shade200;
+    statusText = 'Tam ödənilib';
+  } else if (debt.isOverdue) {
+    cardColor = Colors.red.shade100;
+    statusText = 'Gecikib · ödənməli: ${formatAzn(debt.amountDueNow)}';
+    if (debt.overdueAmount > 0 && debt.overdueAmount < debt.amountDueNow) {
+      statusText += ' (gecikmə: ${formatAzn(debt.overdueAmount)})';
+    }
+  } else if (debt.isDueToday) {
+    cardColor = Colors.amber.shade100;
+    statusText = 'Bu gün ödənməli: ${formatAzn(debt.amountDueNow)}';
+  } else {
+    final dateStr = debt.nextDueDate != null
+        ? DateFormat('dd.MM.yyyy').format(debt.nextDueDate!)
+        : '';
+    statusText = 'Növbəti: $dateStr · ${formatAzn(debt.nextPaymentAmount)}';
+  }
+
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+    child: Card(
+      color: cardColor,
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _navigateToDetailsScreen(item),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                width: 84,
+                height: 50,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                    color: Colors.teal.shade400,
+                    borderRadius: BorderRadius.circular(10)),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(_formatMoney(debt.remainingAmount),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(debt.debtorName,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Color(0xFF333333))),
+                    const SizedBox(height: 4),
+                    Text(debt.direction,
+                        style: const TextStyle(color: Colors.black54, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Text(statusText,
+                        style: const TextStyle(
+                            color: Colors.black87,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                    if (debt.isCompleted)
+                      const Text(
+                          'Ödənilmiş borclar müəyyən müddətdən sonra silinir.',
+                          style: TextStyle(
+                              color: Colors.black45,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic)),
+                  ],
+                ),
+              ),
+              Padding(
+                  padding: const EdgeInsets.only(left: 8.0),
+                  child: Icon(Icons.event_repeat, color: Colors.teal.shade700)),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 
   Widget _buildSharedDebtCard(UnifiedDebtItem item) {
     final debt = item.data as SharedDebt;
