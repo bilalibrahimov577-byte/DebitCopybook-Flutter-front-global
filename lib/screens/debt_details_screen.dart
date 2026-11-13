@@ -13,6 +13,7 @@ import '../models/debt_history.dart';
 import '../models/shared_debt/shared_debt.dart';
 import '../services/debt_service.dart';
 import 'add_debt_screen.dart';
+import '../models/debt_request.dart';
 
 class DebtDetailsScreen extends StatefulWidget {
   final UnifiedDebtItem item;
@@ -65,6 +66,102 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
     }
   }
 
+
+  // void _showAmountDialog({required bool isPayment, required bool isPersonal}) {
+  //   final controller = TextEditingController();
+  //   final formKey = GlobalKey<FormState>();
+  //
+  //   final currentAmount = isPersonal
+  //       ? (_currentItem.data as Debt).debtAmount
+  //       : (_currentItem.data as SharedDebt).debtAmount;
+  //
+  //   // Yalnız fərdi borcda "Məbləği artır" zamanı qeydi dəyişmək təklif olunur
+  //   final bool offerNotes = isPersonal && !isPayment;
+  //   final String oldNotes = isPersonal ? ((_currentItem.data as Debt).notes ?? '') : '';
+  //   final notesController = TextEditingController(text: oldNotes);
+  //
+  //   showDialog(context: context, builder: (context) {
+  //     return AlertDialog(
+  //       title: Text(isPersonal
+  //           ? (isPayment ? 'Ödəniş Et' : 'Məbləği Artır')
+  //           : (isPayment ? 'Ödəniş Təklif Et' : 'Məbləği Artırmaq üçün Təklif')),
+  //       content: SingleChildScrollView(
+  //         child: Form(
+  //           key: formKey,
+  //           child: Column(
+  //             mainAxisSize: MainAxisSize.min,
+  //             children: [
+  //               TextFormField(
+  //                 controller: controller,
+  //                 autofocus: true,
+  //                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+  //                 inputFormatters: [
+  //                   FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))
+  //                 ],
+  //                 decoration: const InputDecoration(
+  //                     labelText: 'Məbləğ (₼)', border: OutlineInputBorder()),
+  //                 validator: (value) {
+  //                   if (value == null || value.isEmpty) return 'Məbləğ boş ola bilməz';
+  //                   final amount = double.tryParse(value);
+  //                   if (amount == null || amount <= 0)
+  //                     return 'Məbləğ 0-dan böyük olmalıdır';
+  //                   if (isPersonal && isPayment && amount > currentAmount)
+  //                     return 'Ödəniş borcdan çox ola bilməz';
+  //                   return null;
+  //                 },
+  //               ),
+  //               if (offerNotes) ...[
+  //                 const SizedBox(height: 16),
+  //                 TextFormField(
+  //                   controller: notesController,
+  //                   maxLines: 2,
+  //                   maxLength: 500,
+  //                   decoration: const InputDecoration(
+  //                     labelText: 'Qeyd (istəsəniz dəyişin)',
+  //                     helperText: 'Məsələn: yağ → xaladennik',
+  //                     border: OutlineInputBorder(),
+  //                   ),
+  //                 ),
+  //               ],
+  //             ],
+  //           ),
+  //         ),
+  //       ),
+  //       actions: [
+  //         TextButton(
+  //             onPressed: () => Navigator.pop(context),
+  //             child: const Text('Ləğv Et')),
+  //         ElevatedButton(
+  //             onPressed: () {
+  //               if (formKey.currentState!.validate()) {
+  //                 final amount = double.parse(controller.text);
+  //                 Navigator.pop(context);
+  //
+  //                 if (isPersonal) {
+  //                   // Qeyd yalnız dəyişibsə göndərilir
+  //                   final newNotes = notesController.text.trim();
+  //                   final String? changedNotes =
+  //                   (offerNotes && newNotes != oldNotes.trim()) ? newNotes : null;
+  //                   _processPersonalDebtTransaction(
+  //                       amount: amount,
+  //                       isPayment: isPayment,
+  //                       newNotes: changedNotes);
+  //                 } else {
+  //                   double newAmount = isPayment
+  //                       ? (currentAmount - amount)
+  //                       : (currentAmount + amount);
+  //                   if (newAmount < 0) newAmount = 0;
+  //                   _sendUpdateProposal(proposedAmount: newAmount);
+  //                 }
+  //               }
+  //             },
+  //             child: Text(isPersonal ? 'Təsdiqlə' : 'Təklif Göndər')),
+  //       ],
+  //     );
+  //   });
+  // }
+
+
   void _showAmountDialog({required bool isPayment, required bool isPersonal}) {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
@@ -73,83 +170,213 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
         ? (_currentItem.data as Debt).debtAmount
         : (_currentItem.data as SharedDebt).debtAmount;
 
-    showDialog(context: context, builder: (context) {
-      return AlertDialog(
-        title: Text(isPersonal
-            ? (isPayment ? 'Ödəniş Et' : 'Məbləği Artır')
-            : (isPayment ? 'Ödəniş Təklif Et' : 'Məbləği Artırmaq üçün Təklif')),
-        content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: controller,
-                  autofocus: true,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))
-                  ],
-                  decoration: const InputDecoration(
-                      labelText: 'Məbləğ (₼)', border: OutlineInputBorder()),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Məbləğ boş ola bilməz';
-                    final amount = double.tryParse(value);
-                    if (amount == null || amount <= 0)
-                      return 'Məbləğ 0-dan böyük olmalıdır';
-                    if (isPersonal && isPayment && amount > currentAmount)
-                      return 'Ödəniş borcdan çox ola bilməz';
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Ləğv Et')),
-          ElevatedButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  final amount = double.parse(controller.text);
-                  Navigator.pop(context);
+    // Yalnız fərdi borcda "Məbləği artır" zamanı qeydi dəyişmək təklif olunur
+    final bool offerNotes = isPersonal && !isPayment;
+    final String oldNotes =
+    isPersonal ? ((_currentItem.data as Debt).notes ?? '').trim() : '';
+    final notesController = TextEditingController(); // boş başlayır
+    bool notesExpanded = false;
 
-                  if (isPersonal) {
-                    _processPersonalDebtTransaction(
-                        amount: amount, isPayment: isPayment);
-                  } else {
-                    double newAmount = isPayment
-                        ? (currentAmount - amount)
-                        : (currentAmount + amount);
-                    if (newAmount < 0) newAmount = 0;
-                    _sendUpdateProposal(proposedAmount: newAmount);
-                  }
-                }
-              },
-              child: Text(isPersonal ? 'Təsdiqlə' : 'Təklif Göndər')),
-        ],
-      );
-    });
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(isPersonal
+                ? (isPayment ? 'Ödəniş Et' : 'Məbləği Artır')
+                : (isPayment
+                ? 'Ödəniş Təklif Et'
+                : 'Məbləği Artırmaq üçün Təklif')),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextFormField(
+                      controller: controller,
+                      autofocus: true,
+                      keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d+\.?\d{0,2}'))
+                      ],
+                      decoration: const InputDecoration(
+                          labelText: 'Məbləğ (₼)',
+                          border: OutlineInputBorder()),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Məbləğ boş ola bilməz';
+                        }
+                        final amount = double.tryParse(value);
+                        if (amount == null || amount <= 0) {
+                          return 'Məbləğ 0-dan böyük olmalıdır';
+                        }
+                        if (isPersonal && isPayment && amount > currentAmount) {
+                          return 'Ödəniş borcdan çox ola bilməz';
+                        }
+                        return null;
+                      },
+                    ),
+                    if (offerNotes) ...[
+                      const SizedBox(height: 16),
+                      // Hazırkı qeyd (yalnız oxumaq üçün)
+                      InkWell(
+                        onTap: oldNotes.isEmpty
+                            ? null
+                            : () => setDialogState(
+                                () => notesExpanded = !notesExpanded),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Hazırkı qeyd',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.black54)),
+                              const SizedBox(height: 4),
+                              Text(
+                                oldNotes.isEmpty
+                                    ? 'Hazırda qeyd yoxdur'
+                                    : oldNotes,
+                                maxLines: notesExpanded ? null : 2,
+                                overflow: notesExpanded
+                                    ? TextOverflow.visible
+                                    : TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontStyle: oldNotes.isEmpty
+                                      ? FontStyle.italic
+                                      : FontStyle.normal,
+                                  color: oldNotes.isEmpty
+                                      ? Colors.black45
+                                      : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: notesController,
+                        maxLines: 2,
+                        maxLength: 500,
+                        decoration: InputDecoration(
+                          labelText:
+                          oldNotes.isEmpty ? 'Qeyd əlavə et' : 'Yeni qeyd',
+                          helperText: oldNotes.isEmpty
+                              ? 'İstəyə bağlı'
+                              : 'Boş buraxsanız köhnə qeyd qalır',
+                          helperMaxLines: 2,
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Ləğv Et')),
+              ElevatedButton(
+                  onPressed: () {
+                    if (formKey.currentState!.validate()) {
+                      final amount = double.parse(controller.text);
+                      Navigator.pop(context);
+
+                      if (isPersonal) {
+                        // Qeyd yalnız yeni mətn yazılıbsa və köhnədən fərqlidirsə göndərilir
+                        final typed = notesController.text.trim();
+                        final String? changedNotes =
+                        (offerNotes && typed.isNotEmpty && typed != oldNotes)
+                            ? typed
+                            : null;
+                        _processPersonalDebtTransaction(
+                            amount: amount,
+                            isPayment: isPayment,
+                            newNotes: changedNotes);
+                      } else {
+                        double newAmount = isPayment
+                            ? (currentAmount - amount)
+                            : (currentAmount + amount);
+                        if (newAmount < 0) newAmount = 0;
+                        _sendUpdateProposal(proposedAmount: newAmount);
+                      }
+                    }
+                  },
+                  child: Text(isPersonal ? 'Təsdiqlə' : 'Təklif Göndər')),
+            ],
+          );
+        });
+      },
+    );
   }
 
   Future<void> _processPersonalDebtTransaction(
-      {required double amount, required bool isPayment}) async {
+      {required double amount,
+        required bool isPayment,
+        String? newNotes}) async {
     setState(() => _isProcessing = true);
     final debtId = (_currentItem.data as Debt).id;
     try {
       final result = isPayment
           ? await _debtService.makePayment(context, debtId, amount)
           : await _debtService.increaseDebt(context, debtId, amount);
+
+      String message = result['message'] ?? 'Əməliyyat tamamlandı';
+      bool notesFailed = false;
+
+      if (result['success'] == true) {
+        _needsRefreshOnExit = true;
+
+        // Məbləğ artırıldı. İndi qeyd dəyişibsə ayrıca yeniləyirik
+        if (!isPayment && newNotes != null) {
+          final fresh = await _debtService.getDebtById(context, debtId);
+          if (fresh != null) {
+            final updateResult = await _debtService.updateDebt(
+              context,
+              debtId,
+              DebtRequest(
+                debtorName: fresh.debtorName,
+                description: fresh.description,
+                debtAmount: fresh.debtAmount, // artırılmış məbləğ
+                notes: newNotes.isEmpty ? null : newNotes,
+                isFlexibleDueDate: fresh.isFlexibleDueDate,
+                dueYear: fresh.dueYear,
+                dueMonth: fresh.dueMonth,
+              ),
+            );
+            if (updateResult['success'] != true) {
+              notesFailed = true;
+            }
+          } else {
+            notesFailed = true;
+          }
+          if (notesFailed) {
+            message = 'Məbləğ artırıldı, amma qeyd yadda saxlanmadı.';
+          }
+        }
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result['message'] ?? 'Əməliyyat tamamlandı'),
-          backgroundColor: result['success'] ? Colors.green : Colors.red,
+          content: Text(message),
+          backgroundColor: (result['success'] == true && !notesFailed)
+              ? Colors.green
+              : (result['success'] == true ? Colors.orange : Colors.red),
         ));
-        if (result['success']) {
-          _needsRefreshOnExit = true;
+        if (result['success'] == true) {
           final updatedDebt = await _debtService.getDebtById(context, debtId);
           if (updatedDebt == null) {
             Navigator.pop(context, true);
@@ -169,6 +396,8 @@ class _DebtDetailsScreenState extends State<DebtDetailsScreen> {
       if (mounted) setState(() => _isProcessing = false);
     }
   }
+
+
 
   void _performDelete() async {
     setState(() => _isProcessing = true);
